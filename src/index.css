@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+
+  --color-accent: #6366f1;
+  --color-accent-light: #818cf8;
+
+  --color-surface-0: var(--theme-surface-0);
+  --color-surface-1: var(--theme-surface-1);
+  --color-surface-2: var(--theme-surface-2);
+  --color-surface-3: var(--theme-surface-3);
+
+  --color-theme-primary: var(--theme-text-primary);
+  --color-theme-secondary: var(--theme-text-secondary);
+  --color-theme-muted: var(--theme-text-muted);
+  --color-theme-border: var(--theme-border);
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+}
+
+/* Dark theme (default) */
+:root,
+[data-theme="dark"] {
+  --theme-surface-0: #0a0f1a;
+  --theme-surface-1: #111827;
+  --theme-surface-2: #1f2937;
+  --theme-surface-3: #374151;
+  --theme-text-primary: #f9fafb;
+  --theme-text-secondary: #d1d5db;
+  --theme-text-muted: #9ca3af;
+  --theme-border: rgba(255, 255, 255, 0.08);
+  --theme-card-bg: #111827;
+  --theme-selection: rgba(99, 102, 241, 0.3);
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --theme-surface-0: #f8fafc;
+  --theme-surface-1: #ffffff;
+  --theme-surface-2: #f1f5f9;
+  --theme-surface-3: #e2e8f0;
+  --theme-text-primary: #0f172a;
+  --theme-text-secondary: #475569;
+  --theme-text-muted: #64748b;
+  --theme-border: rgba(0, 0, 0, 0.08);
+  --theme-card-bg: #ffffff;
+  --theme-selection: rgba(99, 102, 241, 0.15);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--theme-surface-0);
+  color: var(--theme-text-secondary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+::selection {
+  background-color: var(--theme-selection);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
