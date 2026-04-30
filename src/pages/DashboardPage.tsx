@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { ThemeSwitcher } from '../components/ThemeSwitcher'
 import { StatusDot, StatusChip } from '../components/StatusChip'
 import { StatCard } from '../components/StatCard'
-import { MemoryOrbitViz } from '../components/MemoryOrbitViz'
+import { useTheme } from '../lib/theme'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -21,12 +21,33 @@ interface DashboardData {
   jobs: Record<string, number>
   webhooks: { total: number; delivered: number; failed: number; pending: number; dead_letter?: number }
   health_distribution: Record<string, number> | null
-  memory_groups?: { kind: string; count: number }[]
+}
+
+interface UsageWindow {
+  today: number
+  '7d': number
+  '30d': number
+  total: number
+}
+
+interface UsageData {
+  episodes: UsageWindow
+  memories: UsageWindow
+  compile_jobs: UsageWindow
+  webhooks: UsageWindow
+  active_subjects: { '7d': number; '30d': number; total: number }
+  generated_at: string
+  tenant_id: string | null
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8100'
+// In production (Vercel): frontend calls /api/proxy?path=/admin/...
+// The serverless function adds the API key server-side.
+// In local dev: also use the proxy (Vite dev server proxies to Vercel or direct to Fly.io).
+function adminUrl(path: string): string {
+  return `/api/proxy?path=${encodeURIComponent(path)}`
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -38,30 +59,50 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
+  const [usage, setUsage] = useState<UsageData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
+  const { resolvedTheme } = useTheme()
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/dashboard`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = await res.json()
-      setData(json)
+      console.info('[statewave-admin] Fetching dashboard data…')
+      const [dashRes, usageRes] = await Promise.all([
+        fetch(adminUrl('/admin/dashboard')),
+        fetch(adminUrl('/admin/usage')),
+      ])
+      if (!dashRes.ok) throw new Error(`HTTP ${dashRes.status}`)
+      const dashData = await dashRes.json()
+      setData(dashData)
+      console.info('[statewave-admin] Dashboard loaded:', {
+        subjects: dashData.counts?.subjects,
+        episodes: dashData.counts?.episodes,
+        memories: dashData.counts?.memories,
+      })
+      if (usageRes.ok) {
+        const usageData = await usageRes.json()
+        setUsage(usageData)
+        console.info('[statewave-admin] Usage data loaded')
+      }
       setError(null)
       setLastFetched(new Date())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to fetch')
+      const errMsg = e instanceof Error ? e.message : 'Failed to fetch'
+      console.info('[statewave-admin] Fetch failed:', errMsg)
+      setError(errMsg)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
+    // Initial fetch and periodic refresh - legitimate async data fetching pattern
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData()
     const interval = setInterval(fetchData, 30_000)
     return () => clearInterval(interval)
-  }, [])
+  }, [fetchData])
 
   return (
     <div className="min-h-screen bg-[var(--theme-surface-0)]">
@@ -69,6 +110,11 @@ export function DashboardPage() {
       <header className="border-b border-theme-border bg-[var(--theme-card-bg)] sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <img
+              src={resolvedTheme === 'dark' ? '/statewave_icon_dark.png' : '/statewave_icon_light.png'}
+              alt="Statewave"
+              className="h-7 w-7"
+            />
             <span className="text-sm font-semibold text-theme-primary tracking-tight">Statewave</span>
             <span className="text-xs text-theme-muted bg-[var(--theme-surface-2)] px-2 py-0.5 rounded font-medium">Admin</span>
           </div>
@@ -196,26 +242,45 @@ export function DashboardPage() {
               </div>
             </section>
 
-            {/* Memory Visualization */}
-            <section>
-              <SectionTitle>Memory Distribution</SectionTitle>
-              <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
-                {/* TODO: Connect to real Statewave API — replace mock data with
-                    GET /admin/dashboard memory_groups once the endpoint returns
-                    per-kind counts. This will serve as a real-time visual test
-                    of the memory compilation pipeline. */}
-                <MemoryOrbitViz
-                  groups={data.memory_groups ?? [
-                    { kind: 'fact', count: Math.round(data.counts.memories * 0.4) },
-                    { kind: 'preference', count: Math.round(data.counts.memories * 0.2) },
-                    { kind: 'procedure', count: Math.round(data.counts.memories * 0.15) },
-                    { kind: 'summary', count: Math.round(data.counts.memories * 0.15) },
-                    { kind: 'insight', count: Math.round(data.counts.memories * 0.1) },
-                  ]}
-                  totalMemories={data.counts.memories}
-                />
-              </div>
-            </section>
+            {/* Usage Metering */}
+            {usage && (
+              <section>
+                <SectionTitle>Usage (rolling)</SectionTitle>
+                <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-theme-muted">
+                          <th className="text-left font-medium pb-2">Metric</th>
+                          <th className="text-right font-medium pb-2">Today</th>
+                          <th className="text-right font-medium pb-2">7 days</th>
+                          <th className="text-right font-medium pb-2">30 days</th>
+                          <th className="text-right font-medium pb-2">All time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-theme-secondary">
+                        {([['Episodes', usage.episodes], ['Memories', usage.memories], ['Compile jobs', usage.compile_jobs], ['Webhooks', usage.webhooks]] as [string, UsageWindow][]).map(([label, w]) => (
+                          <tr key={label} className="border-t border-theme-border/50">
+                            <td className="py-1.5 text-theme-muted">{label}</td>
+                            <td className="py-1.5 text-right tabular-nums">{w.today.toLocaleString()}</td>
+                            <td className="py-1.5 text-right tabular-nums">{w['7d'].toLocaleString()}</td>
+                            <td className="py-1.5 text-right tabular-nums">{w['30d'].toLocaleString()}</td>
+                            <td className="py-1.5 text-right tabular-nums font-medium">{w.total.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        <tr className="border-t border-theme-border/50">
+                          <td className="py-1.5 text-theme-muted">Active subjects</td>
+                          <td className="py-1.5 text-right text-theme-muted">—</td>
+                          <td className="py-1.5 text-right tabular-nums">{usage.active_subjects['7d'].toLocaleString()}</td>
+                          <td className="py-1.5 text-right tabular-nums">{usage.active_subjects['30d'].toLocaleString()}</td>
+                          <td className="py-1.5 text-right tabular-nums font-medium">{usage.active_subjects.total.toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+            )}
 
             {/* Webhooks */}
             <section>

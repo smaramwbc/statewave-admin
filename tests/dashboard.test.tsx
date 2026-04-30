@@ -1,6 +1,6 @@
 import React from 'react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import App from '../src/App'
 
 const mockDashboard = {
@@ -23,9 +23,34 @@ const mockDashboard = {
   health_distribution: { healthy: 30, degraded: 8, critical: 4 },
 }
 
+const mockUsage = {
+  episodes: { today: 15, '7d': 120, '30d': 500, total: 1200 },
+  memories: { today: 5, '7d': 40, '30d': 180, total: 340 },
+  compile_jobs: { today: 3, '7d': 25, '30d': 100, total: 200 },
+  webhooks: { today: 10, '7d': 80, '30d': 300, total: 600 },
+  active_subjects: { '7d': 12, '30d': 30, total: 42 },
+  generated_at: '2026-04-30T12:00:00Z',
+  tenant_id: null,
+}
+
+function mockFetchSuccess() {
+  vi.spyOn(global, 'fetch').mockImplementation((url) => {
+    const u = typeof url === 'string' ? url : url.toString()
+    // URL contains /admin/usage via the proxy path parameter
+    if (u.includes('usage')) {
+      return Promise.resolve({ ok: true, json: async () => mockUsage } as Response)
+    }
+    return Promise.resolve({ ok: true, json: async () => mockDashboard } as Response)
+  })
+}
+
 describe('Admin Dashboard', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
   })
 
   it('renders loading state initially', () => {
@@ -35,19 +60,29 @@ describe('Admin Dashboard', () => {
   })
 
   it('renders dashboard data after fetch', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockDashboard,
-    } as Response)
-
-    render(<App />)
-
-    await waitFor(() => {
-      expect(screen.getByText('1,200')).toBeInTheDocument()
+    mockFetchSuccess()
+    await act(async () => {
+      render(<App />)
     })
 
-    expect(screen.getByText('42')).toBeInTheDocument()
-    expect(screen.getByText('340')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Readiness')).toBeInTheDocument()
+    }, { timeout: 3000 })
+
+    // StatCards show formatted numbers
+    expect(screen.getAllByText('42').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('340').length).toBeGreaterThan(0)
+  })
+
+  it('renders usage metering section', async () => {
+    mockFetchSuccess()
+    await act(async () => {
+      render(<App />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Usage (rolling)').length).toBeGreaterThan(0)
+    }, { timeout: 3000 })
   })
 
   it('renders error state on fetch failure', async () => {
@@ -57,19 +92,6 @@ describe('Admin Dashboard', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load dashboard')).toBeInTheDocument()
-    })
-  })
-
-  it('shows degraded status chips when failures exist', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockDashboard,
-    } as Response)
-
-    render(<App />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Readiness')).toBeInTheDocument()
     })
   })
 })

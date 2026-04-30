@@ -1,6 +1,30 @@
 # statewave-admin
 
-Standalone operator dashboard for Statewave instances.
+Operator console for Statewave instances — system health, compile jobs, webhook status, and usage metering.
+
+> **Part of the Statewave ecosystem:** [Server](https://github.com/smaramwbc/statewave) · [Python SDK](https://github.com/smaramwbc/statewave-py) · [TypeScript SDK](https://github.com/smaramwbc/statewave-ts) · [Docs](https://github.com/smaramwbc/statewave-docs) · [Demo](https://statewave-demo.vercel.app) · **Admin**
+
+> **Frontend role:** This is the **operator/admin console** — internal dashboard for monitoring and operating Statewave. For the marketing website, see [statewave-web](https://github.com/smaramwbc/statewave-web). For the interactive demo, see [statewave-demo](https://github.com/smaramwbc/statewave-demo).
+
+## Current capabilities (v0.7 early)
+
+This is an **early read-only admin surface**. It provides visibility into a running Statewave instance:
+
+| Feature | Status |
+|---------|--------|
+| System readiness status | ✅ Live |
+| Database/migration health | ✅ Live |
+| Compile job counts by status | ✅ Live |
+| Data counts (subjects, episodes, memories) | ✅ Live |
+| Webhook delivery status | ✅ Live |
+| Usage metering (rolling windows) | ✅ Live |
+| Subject health distribution | ✅ Live |
+| Memory editing / write operations | ❌ Not yet |
+| Advanced job management | ❌ Not yet |
+
+**Honest status:** This is a v1 read-only operator dashboard. It shows what's happening but doesn't yet support write operations or advanced administration tasks.
+
+> **⚠️ Security Notice:** This is an internal/operator tool intended for **private deployment only**. Do not deploy publicly without an access gateway (Cloudflare Access, OAuth2 Proxy, or equivalent enterprise SSO layer). See [DEPLOYMENT.md](DEPLOYMENT.md) for the full security model and deployment guide.
 
 ## Quick start
 
@@ -35,11 +59,13 @@ Open http://localhost:5174
 
 ## Deployment
 
-Build the static site and deploy to any CDN or static host:
+This app is designed for **private/internal deployment**. Do not expose on the public internet without an authenticated access gateway.
+
+For local use:
 
 ```bash
 npm run build
-# deploy dist/ folder
+npm run preview
 ```
 
-Set `VITE_API_BASE_URL` at build time to point to your Statewave instance.
+For team/business deployment, see [DEPLOYMENT.md](DEPLOYMENT.md).
