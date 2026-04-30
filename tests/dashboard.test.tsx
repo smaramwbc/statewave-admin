@@ -19,7 +19,7 @@ const mockDashboard = {
   },
   counts: { episodes: 1200, memories: 340, subjects: 42 },
   jobs: { completed: 50, failed: 2, running: 1 },
-  webhooks: { total: 100, delivered: 90, failed: 5, pending: 3, dead_letter: 2 },
+  webhooks: { total: 100, delivered: 90, pending: 3, dead_letter: 2 },
   health_distribution: { healthy: 30, degraded: 8, critical: 4 },
 }
 
@@ -56,7 +56,9 @@ describe('Admin Dashboard', () => {
   it('renders loading state initially', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
     render(<App />)
-    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    expect(screen.getByText('Loading dashboard…')).toBeInTheDocument()
+    // Should have spinner overlay
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
   it('renders dashboard data after fetch', async () => {
@@ -93,5 +95,97 @@ describe('Admin Dashboard', () => {
     await waitFor(() => {
       expect(screen.getByText('Failed to load dashboard')).toBeInTheDocument()
     })
+  })
+
+  it('subjects card links to subjects page', async () => {
+    mockFetchSuccess()
+    await act(async () => {
+      render(<App />)
+    })
+
+    await waitFor(() => {
+      // Wait for dashboard data to load
+      expect(screen.getByText('Readiness')).toBeInTheDocument()
+    }, { timeout: 3000 })
+
+    // Find StatCard links - the Subjects card should link to /subjects
+    const allLinks = screen.getAllByRole('link')
+    const subjectsCardLink = allLinks.find(link => 
+      link.getAttribute('href') === '/subjects' && 
+      link.textContent?.includes('42') // The count
+    )
+    expect(subjectsCardLink).toBeTruthy()
+  })
+
+  it('job status rows link to filtered jobs page', async () => {
+    mockFetchSuccess()
+    await act(async () => {
+      render(<App />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('failed')).toBeInTheDocument()
+    }, { timeout: 3000 })
+
+    // Each job status should link to /jobs?status={status}
+    const failedLink = screen.getByText('failed').closest('a')
+    expect(failedLink).toHaveAttribute('href', '/jobs?status=failed')
+
+    const runningLink = screen.getByText('running').closest('a')
+    expect(runningLink).toHaveAttribute('href', '/jobs?status=running')
+
+    const completedLink = screen.getByText('completed').closest('a')
+    expect(completedLink).toHaveAttribute('href', '/jobs?status=completed')
+  })
+
+  it('webhook counts link to filtered webhooks page', async () => {
+    mockFetchSuccess()
+    await act(async () => {
+      render(<App />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Delivered')).toBeInTheDocument()
+    }, { timeout: 3000 })
+
+    // Delivered count should link to /webhooks?status=delivered
+    const deliveredLink = screen.getByText('Delivered').closest('a')
+    expect(deliveredLink).toHaveAttribute('href', '/webhooks?status=delivered')
+
+    // Pending count should link to /webhooks?status=pending
+    const pendingLink = screen.getByText('Pending').closest('a')
+    expect(pendingLink).toHaveAttribute('href', '/webhooks?status=pending')
+
+    // Dead Letter count should link to /webhooks?status=dead_letter
+    const deadLetterLink = screen.getByText('Dead Letter').closest('a')
+    expect(deadLetterLink).toHaveAttribute('href', '/webhooks?status=dead_letter')
+  })
+
+  it('has view all jobs link', async () => {
+    mockFetchSuccess()
+    await act(async () => {
+      render(<App />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('View all jobs →')).toBeInTheDocument()
+    }, { timeout: 3000 })
+
+    const viewAllLink = screen.getByText('View all jobs →')
+    expect(viewAllLink).toHaveAttribute('href', '/jobs')
+  })
+
+  it('has view all webhooks link', async () => {
+    mockFetchSuccess()
+    await act(async () => {
+      render(<App />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('View all webhooks →')).toBeInTheDocument()
+    }, { timeout: 3000 })
+
+    const viewAllLink = screen.getByText('View all webhooks →')
+    expect(viewAllLink).toHaveAttribute('href', '/webhooks')
   })
 })

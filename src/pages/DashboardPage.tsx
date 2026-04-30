@@ -1,53 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
-import { ThemeSwitcher } from '../components/ThemeSwitcher'
+import { Link } from 'react-router-dom'
 import { StatusDot, StatusChip } from '../components/StatusChip'
 import { StatCard } from '../components/StatCard'
-import { useTheme } from '../lib/theme'
+import { LoadingOverlay, ErrorState, Modal } from '../components/ui'
+import { fetchDashboard, fetchUsage, type DashboardData, type UsageData, type UsageWindow } from '../lib/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface DashboardData {
-  readiness: {
-    status: string
-    checks: { name: string; status: string; detail: string; latency_ms: number }[]
-  }
-  migration: {
-    current_revision: string | null
-    expected_head: string
-    is_compatible: boolean
-    pending_count: number
-  }
-  counts: { episodes: number; memories: number; subjects: number }
-  jobs: Record<string, number>
-  webhooks: { total: number; delivered: number; failed: number; pending: number; dead_letter?: number }
-  health_distribution: Record<string, number> | null
-}
-
-interface UsageWindow {
-  today: number
-  '7d': number
-  '30d': number
-  total: number
-}
-
-interface UsageData {
-  episodes: UsageWindow
-  memories: UsageWindow
-  compile_jobs: UsageWindow
-  webhooks: UsageWindow
-  active_subjects: { '7d': number; '30d': number; total: number }
-  generated_at: string
-  tenant_id: string | null
-}
-
-// ─── Config ──────────────────────────────────────────────────────────────────
-
-// In production (Vercel): frontend calls /api/proxy?path=/admin/...
-// The serverless function adds the API key server-side.
-// In local dev: also use the proxy (Vite dev server proxies to Vercel or direct to Fly.io).
-function adminUrl(path: string): string {
-  return `/api/proxy?path=${encodeURIComponent(path)}`
-}
+type CheckDetail = { name: string; status: string; detail: string; latency_ms: number }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -63,28 +23,23 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
-  const { resolvedTheme } = useTheme()
+  const [selectedCheck, setSelectedCheck] = useState<CheckDetail | null>(null)
 
   const fetchData = useCallback(async () => {
+    setLoading(true)
     try {
       console.info('[statewave-admin] Fetching dashboard data…')
-      const [dashRes, usageRes] = await Promise.all([
-        fetch(adminUrl('/admin/dashboard')),
-        fetch(adminUrl('/admin/usage')),
+      const [dashData, usageData] = await Promise.all([
+        fetchDashboard(),
+        fetchUsage().catch(() => null),
       ])
-      if (!dashRes.ok) throw new Error(`HTTP ${dashRes.status}`)
-      const dashData = await dashRes.json()
       setData(dashData)
+      setUsage(usageData)
       console.info('[statewave-admin] Dashboard loaded:', {
         subjects: dashData.counts?.subjects,
         episodes: dashData.counts?.episodes,
         memories: dashData.counts?.memories,
       })
-      if (usageRes.ok) {
-        const usageData = await usageRes.json()
-        setUsage(usageData)
-        console.info('[statewave-admin] Usage data loaded')
-      }
       setError(null)
       setLastFetched(new Date())
     } catch (e) {
@@ -105,100 +60,95 @@ export function DashboardPage() {
   }, [fetchData])
 
   return (
-    <div className="min-h-screen bg-[var(--theme-surface-0)]">
+    <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <header className="border-b border-theme-border bg-[var(--theme-card-bg)] sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img
-              src={resolvedTheme === 'dark' ? '/statewave_icon_dark.png' : '/statewave_icon_light.png'}
-              alt="Statewave"
-              className="h-7 w-7"
-            />
-            <span className="text-sm font-semibold text-theme-primary tracking-tight">Statewave</span>
-            <span className="text-xs text-theme-muted bg-[var(--theme-surface-2)] px-2 py-0.5 rounded font-medium">Admin</span>
-          </div>
-          <div className="flex items-center gap-4">
-            {lastFetched && (
-              <span className="text-xs text-theme-muted tabular-nums">
-                {lastFetched.toLocaleTimeString()}
-              </span>
-            )}
-            <button
-              onClick={fetchData}
-              className="text-xs text-theme-muted hover:text-theme-primary transition-colors"
-              title="Refresh"
-            >
-              ↻
-            </button>
-            <ThemeSwitcher />
-          </div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-semibold text-theme-primary">Overview</h1>
+          <p className="text-sm text-theme-muted mt-0.5">System health and usage summary</p>
         </div>
-      </header>
+        <div className="flex items-center gap-3">
+          {lastFetched && (
+            <span className="text-xs text-theme-muted tabular-nums">
+              Updated {lastFetched.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={fetchData}
+            className="px-3 py-1.5 text-xs text-theme-muted hover:text-theme-primary border border-theme-border rounded-lg transition-colors"
+            title="Refresh"
+          >
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        {loading && !data && (
-          <div className="flex items-center justify-center h-64">
-            <p className="text-sm text-theme-muted">Loading…</p>
-          </div>
-        )}
+      {error && !data && (
+        <ErrorState 
+          title="Failed to load dashboard" 
+          message={error} 
+          onRetry={fetchData} 
+        />
+      )}
 
-        {error && !data && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-center">
-            <p className="text-sm text-red-400 font-medium">Failed to load dashboard</p>
-            <p className="text-xs text-theme-muted mt-1">{error}</p>
-            <button onClick={fetchData} className="mt-3 text-xs text-accent hover:underline">
-              Retry
-            </button>
-          </div>
-        )}
-
-        {data && (
-          <div className="space-y-8">
-            {/* System Status */}
-            <section>
-              <SectionTitle>System Status</SectionTitle>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Readiness */}
-                <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-medium text-theme-muted uppercase tracking-wide">Readiness</p>
-                    <StatusChip status={data.readiness.status} />
-                  </div>
-                  <div className="space-y-2">
-                    {data.readiness.checks.map((c) => (
-                      <div key={c.name} className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-2 text-theme-secondary">
+      {data && (
+        <div className="space-y-8">
+          {/* System Status */}
+          <section>
+            <SectionTitle>System Status</SectionTitle>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Readiness */}
+              <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-medium text-theme-muted uppercase tracking-wide">Readiness</p>
+                  <StatusChip status={data.readiness.status} />
+                </div>
+                <div className="space-y-2">
+                  {data.readiness.checks.map((c) => {
+                    const hasError = c.status !== 'ok' && c.detail
+                    return (
+                      <div key={c.name} className="flex items-center justify-between text-xs gap-2">
+                        <span className="flex items-center gap-2 text-theme-secondary shrink-0">
                           <StatusDot status={c.status} />
                           {c.name}
                         </span>
-                        <span className="text-theme-muted">
-                          {c.latency_ms ? `${c.latency_ms}ms` : c.detail || '—'}
-                        </span>
+                        {c.latency_ms ? (
+                          <span className="text-theme-muted">{c.latency_ms}ms</span>
+                        ) : hasError ? (
+                          <button
+                            onClick={() => setSelectedCheck(c)}
+                            className="text-amber-600 hover:text-amber-500 text-right truncate max-w-[120px] underline underline-offset-2 decoration-dashed cursor-pointer"
+                            title="Click to view full error"
+                          >
+                            View error
+                          </button>
+                        ) : (
+                          <span className="text-theme-muted">—</span>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    )
+                  })}
                 </div>
+              </div>
 
-                {/* Schema */}
-                <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-medium text-theme-muted uppercase tracking-wide">Schema</p>
-                    <StatusChip status={data.migration.is_compatible ? 'ok' : 'degraded'} />
+              {/* Schema */}
+              <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-medium text-theme-muted uppercase tracking-wide">Schema</p>
+                  <StatusChip status={data.migration.is_compatible ? 'ok' : 'degraded'} />
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-theme-muted">Current</span>
+                    <span className="text-theme-secondary font-mono">{data.migration.current_revision || '—'}</span>
                   </div>
-                  <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-theme-muted">Current</span>
-                      <span className="text-theme-secondary font-mono">{data.migration.current_revision || '—'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-theme-muted">Expected</span>
-                      <span className="text-theme-secondary font-mono">{data.migration.expected_head}</span>
-                    </div>
-                    {data.migration.pending_count > 0 && (
-                      <p className="text-amber-400 mt-2">{data.migration.pending_count} pending migration(s)</p>
-                    )}
+                  <div className="flex justify-between">
+                    <span className="text-theme-muted">Expected</span>
+                    <span className="text-theme-secondary font-mono">{data.migration.expected_head}</span>
+                  </div>
+                  {data.migration.pending_count > 0 && (
+                    <p className="text-amber-400 mt-2">{data.migration.pending_count} pending migration(s)</p>
+                  )}
                   </div>
                 </div>
 
@@ -221,13 +171,29 @@ export function DashboardPage() {
                       <p className="text-theme-muted">No jobs recorded</p>
                     ) : (
                       Object.entries(data.jobs).map(([status, count]) => (
-                        <div key={status} className="flex justify-between">
-                          <span className="text-theme-muted capitalize">{status}</span>
-                          <span className="text-theme-secondary tabular-nums">{count}</span>
-                        </div>
+                        <Link
+                          key={status}
+                          to={`/jobs?status=${status}`}
+                          className="flex justify-between hover:bg-[var(--theme-surface-1)] -mx-2 px-2 py-0.5 rounded transition-colors group"
+                        >
+                          <span className="text-theme-muted capitalize group-hover:text-theme-secondary transition-colors">{status}</span>
+                          <span className={`tabular-nums group-hover:text-accent transition-colors ${
+                            status === 'failed' && count > 0 ? 'text-red-400' :
+                            status === 'running' && count > 5 ? 'text-amber-400' :
+                            'text-theme-secondary'
+                          }`}>{count}</span>
+                        </Link>
                       ))
                     )}
                   </div>
+                  {Object.entries(data.jobs).length > 0 && (
+                    <Link
+                      to="/jobs"
+                      className="block text-[10px] text-theme-muted hover:text-accent mt-3 pt-2 border-t border-theme-border/50 transition-colors"
+                    >
+                      View all jobs →
+                    </Link>
+                  )}
                 </div>
               </div>
             </section>
@@ -236,7 +202,7 @@ export function DashboardPage() {
             <section>
               <SectionTitle>Data</SectionTitle>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <StatCard label="Subjects" value={data.counts.subjects} />
+                <StatCard label="Subjects" value={data.counts.subjects} to="/subjects" />
                 <StatCard label="Episodes" value={data.counts.episodes} />
                 <StatCard label="Memories" value={data.counts.memories} />
               </div>
@@ -289,54 +255,71 @@ export function DashboardPage() {
                 {data.webhooks.total === 0 ? (
                   <p className="text-xs text-theme-muted">No webhook events recorded</p>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                    <div>
-                      <p className="text-xl font-semibold text-theme-primary tabular-nums">{data.webhooks.delivered}</p>
-                      <p className="text-xs text-theme-muted mt-0.5">Delivered</p>
+                  <>
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <Link
+                        to="/webhooks?status=delivered"
+                        className="p-2 -m-2 rounded-lg hover:bg-[var(--theme-surface-1)] transition-colors group"
+                      >
+                        <p className="text-xl font-semibold text-theme-primary tabular-nums group-hover:text-accent transition-colors">{data.webhooks.delivered}</p>
+                        <p className="text-xs text-theme-muted mt-0.5">Delivered</p>
+                      </Link>
+                      <Link
+                        to="/webhooks?status=pending"
+                        className="p-2 -m-2 rounded-lg hover:bg-[var(--theme-surface-1)] transition-colors group"
+                      >
+                        <p className={`text-xl font-semibold tabular-nums group-hover:text-accent transition-colors ${data.webhooks.pending > 0 ? 'text-amber-400' : 'text-theme-primary'}`}>
+                          {data.webhooks.pending}
+                        </p>
+                        <p className="text-xs text-theme-muted mt-0.5">Pending</p>
+                      </Link>
+                      <Link
+                        to="/webhooks?status=dead_letter"
+                        className="p-2 -m-2 rounded-lg hover:bg-[var(--theme-surface-1)] transition-colors group"
+                      >
+                        <p className={`text-xl font-semibold tabular-nums group-hover:text-accent transition-colors ${data.webhooks.dead_letter > 0 ? 'text-red-400' : 'text-theme-primary'}`}>
+                          {data.webhooks.dead_letter}
+                        </p>
+                        <p className="text-xs text-theme-muted mt-0.5">Dead Letter</p>
+                      </Link>
                     </div>
-                    <div>
-                      <p className="text-xl font-semibold text-theme-primary tabular-nums">{data.webhooks.pending}</p>
-                      <p className="text-xs text-theme-muted mt-0.5">Pending</p>
-                    </div>
-                    <div>
-                      <p className={`text-xl font-semibold tabular-nums ${data.webhooks.failed > 0 ? 'text-amber-400' : 'text-theme-primary'}`}>
-                        {data.webhooks.failed}
-                      </p>
-                      <p className="text-xs text-theme-muted mt-0.5">Failed</p>
-                    </div>
-                    <div>
-                      <p className={`text-xl font-semibold tabular-nums ${(data.webhooks.dead_letter || 0) > 0 ? 'text-red-400' : 'text-theme-primary'}`}>
-                        {data.webhooks.dead_letter || 0}
-                      </p>
-                      <p className="text-xs text-theme-muted mt-0.5">Dead Letter</p>
-                    </div>
-                  </div>
+                    <Link
+                      to="/webhooks"
+                      className="block text-[10px] text-theme-muted hover:text-accent mt-4 pt-3 border-t border-theme-border/50 transition-colors text-center"
+                    >
+                      View all webhooks →
+                    </Link>
+                  </>
                 )}
               </div>
             </section>
-
-            {/* Health Distribution */}
-            {data.health_distribution && Object.keys(data.health_distribution).length > 0 && (
-              <section>
-                <SectionTitle>Subject Health</SectionTitle>
-                <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                    {Object.entries(data.health_distribution).map(([state, count]) => (
-                      <div key={state}>
-                        <p className="text-xl font-semibold text-theme-primary tabular-nums">{count}</p>
-                        <p className="text-xs text-theme-muted mt-0.5 capitalize flex items-center justify-center gap-1.5">
-                          <StatusDot status={state} />
-                          {state}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-            )}
           </div>
         )}
-      </div>
+
+      {/* Loading overlay for initial load and refetch */}
+      {loading && <LoadingOverlay message={data ? "Refreshing dashboard…" : "Loading dashboard…"} />}
+
+      {/* Error detail modal */}
+      <Modal
+        open={!!selectedCheck}
+        onClose={() => setSelectedCheck(null)}
+        title={`Error: ${selectedCheck?.name ?? ''}`}
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <StatusDot status={selectedCheck?.status ?? 'error'} />
+            <span className="text-sm font-medium text-theme-primary capitalize">{selectedCheck?.name}</span>
+          </div>
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+            <p className="text-xs font-mono text-red-400 whitespace-pre-wrap break-all leading-relaxed">
+              {selectedCheck?.detail}
+            </p>
+          </div>
+          <p className="text-xs text-theme-muted">
+            This check failed during the last health probe. Review the error above and check your database or service configuration.
+          </p>
+        </div>
+      </Modal>
     </div>
   )
 }
