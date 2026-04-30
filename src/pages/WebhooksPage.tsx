@@ -1,0 +1,357 @@
+import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import {
+  FilterSelect,
+  Pagination,
+  EmptyState,
+  NoResultsState,
+  LoadingOverlay,
+  ErrorState,
+  Badge,
+} from '../components/ui'
+import { fetchWebhookEvents, type WebhookEventListItem } from '../lib/api'
+
+const PAGE_SIZE = 50
+
+const statusOptions = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'dead_letter', label: 'Dead Letter' },
+]
+
+const eventTypeOptions = [
+  { value: 'episode.created', label: 'episode.created' },
+  { value: 'memory.compiled', label: 'memory.compiled' },
+  { value: 'memory.superseded', label: 'memory.superseded' },
+  { value: 'subject.deleted', label: 'subject.deleted' },
+]
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatRelativeTime(timestamp: string | null): string {
+  if (!timestamp) return '—'
+  const date = new Date(timestamp)
+  const now = new Date()
+  const diffSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+
+  if (diffSeconds < 60) return 'just now'
+  if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`
+  if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`
+  if (diffSeconds < 604800) return `${Math.floor(diffSeconds / 86400)}d ago`
+  return date.toLocaleDateString()
+}
+
+function isRetrying(event: WebhookEventListItem): boolean {
+  return event.status === 'pending' && event.attempts > 0
+}
+
+function isStalled(event: WebhookEventListItem): boolean {
+  if (event.status !== 'pending') return false
+  if (!event.next_attempt_at) return false
+  const nextAttempt = new Date(event.next_attempt_at)
+  const now = new Date()
+  // Stalled if next_attempt_at was more than 5 minutes ago
+  return (now.getTime() - nextAttempt.getTime()) > 5 * 60 * 1000
+}
+
+// ─── Status Badge ────────────────────────────────────────────────────────────
+
+function StatusBadge({ event }: { event: WebhookEventListItem }) {
+  const stalled = isStalled(event)
+  const retrying = isRetrying(event)
+
+  const variants: Record<string, 'success' | 'warning' | 'error' | 'muted'> = {
+    delivered: 'success',
+    pending: 'warning',
+    dead_letter: 'error',
+  }
+
+  if (stalled) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Badge variant="warning">{event.status}</Badge>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-medium">
+          STALLED
+        </span>
+      </span>
+    )
+  }
+
+  if (retrying) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Badge variant="warning">{event.status}</Badge>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-medium">
+          RETRY
+        </span>
+      </span>
+    )
+  }
+
+  return <Badge variant={variants[event.status] || 'muted'}>{event.status}</Badge>
+}
+
+// ─── Event Row ───────────────────────────────────────────────────────────────
+
+function EventRow({ event }: { event: WebhookEventListItem }) {
+  const [errorExpanded, setErrorExpanded] = useState(false)
+
+  return (
+    <tr className="border-b border-theme-border/50 last:border-0 hover:bg-[var(--theme-surface-1)]/50">
+      {/* Event ID */}
+      <td className="px-4 py-3">
+        <code className="text-xs font-mono text-theme-secondary">{event.id.slice(0, 8)}…</code>
+      </td>
+
+      {/* Event Type */}
+      <td className="px-4 py-3">
+        <code className="text-xs font-mono text-accent">{event.event}</code>
+      </td>
+
+      {/* Status */}
+      <td className="px-4 py-3">
+        <StatusBadge event={event} />
+      </td>
+
+      {/* Attempts */}
+      <td className="px-4 py-3 text-center">
+        <span className={`text-xs tabular-nums ${event.attempts >= event.max_attempts ? 'text-red-400' : 'text-theme-secondary'}`}>
+          {event.attempts}/{event.max_attempts}
+        </span>
+      </td>
+
+      {/* HTTP Status */}
+      <td className="px-4 py-3 text-center">
+        {event.http_status ? (
+          <span className={`text-xs tabular-nums ${event.http_status >= 400 ? 'text-red-400' : event.http_status >= 200 && event.http_status < 300 ? 'text-emerald-400' : 'text-theme-muted'}`}>
+            {event.http_status}
+          </span>
+        ) : (
+          <span className="text-xs text-theme-muted">—</span>
+        )}
+      </td>
+
+      {/* Next Retry */}
+      <td className="px-4 py-3 text-right">
+        <span className="text-xs text-theme-muted">
+          {event.next_attempt_at ? formatRelativeTime(event.next_attempt_at) : '—'}
+        </span>
+      </td>
+
+      {/* Created */}
+      <td className="px-4 py-3 text-right">
+        <span className="text-xs text-theme-muted">{formatRelativeTime(event.created_at)}</span>
+      </td>
+
+      {/* Error */}
+      <td className="px-4 py-3">
+        {event.last_error ? (
+          <div>
+            <button
+              onClick={() => setErrorExpanded(!errorExpanded)}
+              className="text-xs text-red-400 hover:text-red-300 text-left max-w-[200px]"
+            >
+              {errorExpanded ? event.last_error : `${event.last_error.slice(0, 50)}${event.last_error.length > 50 ? '…' : ''}`}
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-theme-muted">—</span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
+export function WebhooksPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [data, setData] = useState<{ events: WebhookEventListItem[]; total: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Extract params from URL
+  const statusFilter = searchParams.get('status') || ''
+  const eventTypeFilter = searchParams.get('event') || ''
+  const page = parseInt(searchParams.get('page') || '1', 10)
+
+  const updateParams = useCallback(
+    (updates: Record<string, string | undefined>) => {
+      const newParams = new URLSearchParams(searchParams)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value) {
+          newParams.set(key, value)
+        } else {
+          newParams.delete(key)
+        }
+      })
+      // Reset to page 1 when filters change
+      if (!updates.page && (updates.status !== undefined || updates.event !== undefined)) {
+        newParams.delete('page')
+      }
+      setSearchParams(newParams)
+    },
+    [searchParams, setSearchParams]
+  )
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await fetchWebhookEvents({
+        status: statusFilter || undefined,
+        event_type: eventTypeFilter || undefined,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+      })
+      setData({ events: result.events, total: result.total })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load webhook events')
+    } finally {
+      setLoading(false)
+    }
+  }, [statusFilter, eventTypeFilter, page])
+
+  useEffect(() => {
+    // Initial and reactive data fetch
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData()
+  }, [loadData])
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [loadData])
+
+  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
+
+  // Count problem events
+  const deadLetterCount = data?.events.filter(e => e.status === 'dead_letter').length || 0
+  const stalledCount = data?.events.filter(isStalled).length || 0
+  const problemCount = deadLetterCount + stalledCount
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-lg font-semibold text-theme-primary">Webhook Events</h1>
+        <p className="text-sm text-theme-muted mt-0.5">
+          Monitor webhook delivery and identify failures
+        </p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 mb-4 items-center">
+        <div className="w-40">
+          <FilterSelect
+            value={statusFilter}
+            onChange={(v) => updateParams({ status: v || undefined })}
+            options={statusOptions}
+            placeholder="All statuses"
+            aria-label="Filter by delivery status"
+          />
+        </div>
+
+        <div className="w-44">
+          <FilterSelect
+            value={eventTypeFilter}
+            onChange={(v) => updateParams({ event: v || undefined })}
+            options={eventTypeOptions}
+            placeholder="All event types"
+            aria-label="Filter by event type"
+          />
+        </div>
+
+        {problemCount > 0 && (
+          <div className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
+            <span className="text-xs text-red-400 font-medium">
+              ⚠ {problemCount} problem event{problemCount > 1 ? 's' : ''} on this page
+            </span>
+          </div>
+        )}
+
+        <div className="flex-1" />
+
+        <button
+          onClick={() => loadData()}
+          disabled={loading}
+          className="px-3 py-1.5 text-xs text-theme-muted hover:text-theme-secondary border border-theme-border rounded-lg hover:bg-[var(--theme-surface-1)] transition-colors disabled:opacity-50"
+        >
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+
+      {/* Loading */}
+      {loading && !data && <LoadingOverlay message="Loading webhook events…" />}
+
+      {/* Error */}
+      {error && <ErrorState message={error} onRetry={loadData} />}
+
+      {/* Empty - no data ever */}
+      {!loading && !error && data?.events.length === 0 && !statusFilter && !eventTypeFilter && (
+        <EmptyState
+          title="No webhook events found"
+          description="No webhook events recorded yet"
+        />
+      )}
+
+      {/* Empty - filtered results */}
+      {!loading && !error && data?.events.length === 0 && (statusFilter || eventTypeFilter) && (
+        <NoResultsState
+          title="No webhook events found"
+          filterSummary={`No events matching ${statusFilter ? `status "${statusFilter}"` : ''}${statusFilter && eventTypeFilter ? ' and ' : ''}${eventTypeFilter ? `type "${eventTypeFilter}"` : ''}`}
+          onClearFilters={() => updateParams({ status: undefined, event: undefined })}
+        />
+      )}
+
+      {/* Events Table */}
+      {data && data.events.length > 0 && (
+        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-theme-border bg-[var(--theme-surface-1)]">
+                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">ID</th>
+                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Event Type</th>
+                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Status</th>
+                  <th className="text-center font-medium text-theme-muted px-4 py-2.5 text-xs">Attempts</th>
+                  <th className="text-center font-medium text-theme-muted px-4 py-2.5 text-xs">HTTP</th>
+                  <th className="text-right font-medium text-theme-muted px-4 py-2.5 text-xs">Next Retry</th>
+                  <th className="text-right font-medium text-theme-muted px-4 py-2.5 text-xs">Created</th>
+                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.events.map((event) => (
+                  <EventRow key={event.id} event={event} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="border-t border-theme-border px-4 py-3">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                totalItems={data.total}
+                onPageChange={(p) => updateParams({ page: p > 1 ? String(p) : undefined })}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Summary */}
+      {data && (
+        <div className="mt-4 text-xs text-theme-muted text-right">
+          Showing {data.events.length} of {data.total} events · Auto-refreshes every 30s
+        </div>
+      )}
+    </div>
+  )
+}
