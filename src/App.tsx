@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './lib/theme'
 import { Shell } from './components/layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -26,6 +27,7 @@ export default function App() {
           </Routes>
         </BrowserRouter>
       </ThemeProvider>
+      <SpeedInsights />
     </ErrorBoundary>
   )
 }
