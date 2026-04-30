@@ -302,8 +302,8 @@ export async function fetchSubjectSessions(
   subjectId: string,
   tenantId?: string
 ): Promise<SessionListResponse> {
-  // Use the SLA endpoint which returns session details
-  let path = `/v1/subjects/${encodeURIComponent(subjectId)}/sla`
+  // Use the admin subjects endpoint which includes SLA + session data
+  let path = `/admin/subjects/${encodeURIComponent(subjectId)}/sla`
   if (tenantId) path += `?tenant_id=${encodeURIComponent(tenantId)}`
   const res = await fetch(adminUrl(path))
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
