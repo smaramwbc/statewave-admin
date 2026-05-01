@@ -2,11 +2,11 @@
 
 Operator console for Statewave instances — system health, subject explorer, compile jobs, webhook status, and usage metering.
 
-> **Part of the Statewave ecosystem:** [Server](https://github.com/smaramwbc/statewave) · [Python SDK](https://github.com/smaramwbc/statewave-py) · [TypeScript SDK](https://github.com/smaramwbc/statewave-ts) · [Docs](https://github.com/smaramwbc/statewave-docs) · [Demo](https://demo.statewave.ai) · **Admin**
+> **Part of the Statewave ecosystem:** [Server](https://github.com/smaramwbc/statewave) · [Python SDK](https://github.com/smaramwbc/statewave-py) · [TypeScript SDK](https://github.com/smaramwbc/statewave-ts) · [Docs](https://github.com/smaramwbc/statewave-docs) · [Website + demo](https://statewave.ai) · **Admin**
 >
 > 📋 **Issues & feature requests:** [statewave/issues](https://github.com/smaramwbc/statewave/issues) (centralized tracker)
 
-> **Frontend role:** This is the **operator/admin console** — internal dashboard for monitoring and operating Statewave. For the marketing website, see [statewave-web](https://github.com/smaramwbc/statewave-web). For the interactive demo, see [statewave-demo](https://github.com/smaramwbc/statewave-demo).
+> **Frontend role:** This is the **operator/admin console** — internal dashboard for monitoring and operating Statewave. For the marketing website and embedded interactive demo, see [statewave-web](https://github.com/smaramwbc/statewave-web).
 
 ## Current capabilities (v0.8)
 
