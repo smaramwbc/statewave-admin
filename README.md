@@ -8,6 +8,16 @@ Operator console for Statewave instances — system health, subject explorer, co
 
 > **Frontend role:** This is the **operator/admin console** — internal dashboard for monitoring and operating Statewave. For the marketing website and embedded interactive demo, see [statewave-web](https://github.com/smaramwbc/statewave-web).
 
+## Screenshots
+
+**Overview** — system readiness, schema/migration state, compile job health, data counts, and rolling usage:
+
+![Overview dashboard](docs/screenshots/overview.png)
+
+**Subjects** — search, filter by health, and drill into per-subject memories, episodes, and SLA state:
+
+![Subjects explorer](docs/screenshots/subjects.png)
+
 ## Current capabilities (v0.8)
 
 This is a **read-only admin console** for operators to inspect a running Statewave instance at scale.
