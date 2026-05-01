@@ -9,8 +9,18 @@ import {
   ErrorState,
   HealthBadge,
   Badge,
+  Modal,
 } from '../components/ui'
-import { fetchSubjects, fetchTenants, type SubjectListItem, type SubjectListParams } from '../lib/api'
+import {
+  fetchSubjects,
+  fetchTenants,
+  previewBulkDelete,
+  commitBulkDelete,
+  type SubjectListItem,
+  type SubjectListParams,
+  type BulkDeletePreview,
+  type BulkDeleteResult,
+} from '../lib/api'
 
 const PAGE_SIZE = 50
 
@@ -34,6 +44,16 @@ export function SubjectsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tenantOptions, setTenantOptions] = useState<{ value: string; label: string }[]>([])
+  // Bulk-delete dialog state. Two phases: filter input → preview → confirm.
+  const [showBulkModal, setShowBulkModal] = useState(false)
+  const [bulkPrefix, setBulkPrefix] = useState('')
+  const [bulkAgeDays, setBulkAgeDays] = useState('')
+  const [bulkTenant, setBulkTenant] = useState('')
+  const [bulkPreview, setBulkPreview] = useState<BulkDeletePreview | null>(null)
+  const [bulkPreviewing, setBulkPreviewing] = useState(false)
+  const [bulkCommitting, setBulkCommitting] = useState(false)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+  const [bulkResult, setBulkResult] = useState<BulkDeleteResult | null>(null)
 
   // Extract params from URL
   const search = searchParams.get('search') || ''
@@ -102,11 +122,28 @@ export function SubjectsPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold text-theme-primary">Subjects</h1>
-        <p className="text-sm text-theme-muted mt-0.5">
-          Browse and inspect subject memory, episodes, and health
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-semibold text-theme-primary">Subjects</h1>
+          <p className="text-sm text-theme-muted mt-0.5">
+            Browse and inspect subject memory, episodes, and health
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setBulkPrefix('')
+            setBulkAgeDays('')
+            setBulkTenant(tenantId || '')
+            setBulkPreview(null)
+            setBulkResult(null)
+            setBulkError(null)
+            setShowBulkModal(true)
+          }}
+          className="text-xs px-3 py-1.5 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors whitespace-nowrap"
+          title="Filtered bulk delete with preview before commit"
+        >
+          Bulk delete…
+        </button>
       </div>
 
       {/* Filters */}
@@ -248,6 +285,182 @@ export function SubjectsPage() {
 
       {/* Loading overlay for initial load and refetch */}
       {loading && <LoadingOverlay message={data ? "Loading subjects…" : "Loading subjects…"} />}
+
+      <Modal
+        open={showBulkModal}
+        onClose={() => { if (!bulkCommitting && !bulkPreviewing) setShowBulkModal(false) }}
+        title="Bulk delete subjects"
+      >
+        <div className="space-y-4 text-sm">
+          {!bulkResult && (
+            <>
+              <p className="text-theme-muted text-xs">
+                Specify at least one filter. Preview shows what will be deleted before you commit.
+                Episodes, memories, and sessions for matched subjects are removed permanently.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <label className="block">
+                  <span className="block text-xs text-theme-muted mb-1">Subject ID prefix</span>
+                  <input
+                    type="text"
+                    value={bulkPrefix}
+                    onChange={(e) => { setBulkPrefix(e.target.value); setBulkPreview(null) }}
+                    placeholder="e.g. demo_web_"
+                    className="w-full px-3 py-2 text-sm font-mono rounded border border-theme-border bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-accent/50"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs text-theme-muted mb-1">Inactive for at least N days</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={bulkAgeDays}
+                    onChange={(e) => { setBulkAgeDays(e.target.value); setBulkPreview(null) }}
+                    placeholder="e.g. 30"
+                    className="w-full px-3 py-2 text-sm rounded border border-theme-border bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-accent/50"
+                  />
+                </label>
+                {tenantOptions.length > 0 && (
+                  <label className="block">
+                    <span className="block text-xs text-theme-muted mb-1">Tenant (optional)</span>
+                    <FilterSelect
+                      value={bulkTenant}
+                      onChange={(v) => { setBulkTenant(v); setBulkPreview(null) }}
+                      options={tenantOptions}
+                      placeholder="Any tenant"
+                      aria-label="Filter by tenant"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {bulkPreview && (
+                <div className="rounded border border-theme-border bg-theme-surface-1 p-3">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <p className="text-sm text-theme-primary">
+                      Matches: <span className="font-mono text-red-400">{bulkPreview.matched}</span>{' '}
+                      subjects
+                    </p>
+                    <p className="text-xs text-theme-muted">
+                      {bulkPreview.total_episodes} episodes · {bulkPreview.total_memories} memories
+                    </p>
+                  </div>
+                  {bulkPreview.matched > 0 ? (
+                    <div className="max-h-40 overflow-y-auto text-[11px] font-mono text-theme-secondary space-y-0.5">
+                      {bulkPreview.sample.map((s) => (
+                        <div key={s.subject_id} className="flex justify-between gap-3">
+                          <span className="truncate">{s.subject_id}</span>
+                          <span className="text-theme-muted whitespace-nowrap">
+                            {s.episode_count}e / {s.memory_count}m
+                          </span>
+                        </div>
+                      ))}
+                      {bulkPreview.matched > bulkPreview.sample.length && (
+                        <div className="text-theme-muted italic pt-1">
+                          …and {bulkPreview.matched - bulkPreview.sample.length} more
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-theme-muted">No subjects match this filter.</p>
+                  )}
+                </div>
+              )}
+
+              {bulkError && <p className="text-xs text-red-400">{bulkError}</p>}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  onClick={() => setShowBulkModal(false)}
+                  disabled={bulkPreviewing || bulkCommitting}
+                  className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-secondary hover:bg-theme-surface-1 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setBulkPreviewing(true)
+                    setBulkError(null)
+                    try {
+                      const filter = {
+                        subject_id_prefix: bulkPrefix || undefined,
+                        older_than_days: bulkAgeDays ? Number(bulkAgeDays) : undefined,
+                        tenant_id: bulkTenant || undefined,
+                      }
+                      const pv = await previewBulkDelete(filter)
+                      setBulkPreview(pv)
+                    } catch (err) {
+                      setBulkError(err instanceof Error ? err.message : 'Preview failed')
+                    } finally {
+                      setBulkPreviewing(false)
+                    }
+                  }}
+                  disabled={bulkPreviewing || bulkCommitting || (!bulkPrefix && !bulkAgeDays && !bulkTenant)}
+                  className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-primary hover:bg-theme-surface-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {bulkPreviewing ? 'Previewing…' : 'Preview matches'}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!bulkPreview || bulkPreview.matched === 0) return
+                    if (!window.confirm(
+                      `Delete ${bulkPreview.matched} subjects (${bulkPreview.total_episodes} episodes, ${bulkPreview.total_memories} memories)? This is permanent.`
+                    )) return
+                    setBulkCommitting(true)
+                    setBulkError(null)
+                    try {
+                      const filter = {
+                        subject_id_prefix: bulkPrefix || undefined,
+                        older_than_days: bulkAgeDays ? Number(bulkAgeDays) : undefined,
+                        tenant_id: bulkTenant || undefined,
+                      }
+                      const result = await commitBulkDelete(filter, bulkPreview.matched)
+                      setBulkResult(result)
+                      // Refresh the subjects list since some are gone now
+                      void loadData()
+                    } catch (err) {
+                      setBulkError(err instanceof Error ? err.message : 'Delete failed')
+                    } finally {
+                      setBulkCommitting(false)
+                    }
+                  }}
+                  disabled={bulkCommitting || !bulkPreview || bulkPreview.matched === 0}
+                  className="px-3 py-1.5 text-xs rounded bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {bulkCommitting ? 'Deleting…' : `Delete ${bulkPreview?.matched ?? ''} subjects`}
+                </button>
+              </div>
+            </>
+          )}
+
+          {bulkResult && (
+            <div className="space-y-3">
+              <div className="rounded border border-green-500/30 bg-green-500/10 p-3">
+                <p className="text-sm text-green-400">
+                  Deleted {bulkResult.deleted_subjects} subjects ·{' '}
+                  {bulkResult.deleted_episodes} episodes ·{' '}
+                  {bulkResult.deleted_memories} memories
+                </p>
+                {bulkResult.failed.length > 0 && (
+                  <p className="text-xs text-red-400 mt-2">
+                    Failed for {bulkResult.failed.length} subject(s):{' '}
+                    <span className="font-mono">{bulkResult.failed.slice(0, 5).join(', ')}</span>
+                    {bulkResult.failed.length > 5 && '…'}
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowBulkModal(false)}
+                  className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-secondary hover:bg-theme-surface-1"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

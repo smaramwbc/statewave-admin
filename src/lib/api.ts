@@ -518,3 +518,88 @@ export async function fetchWebhookEvents(
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+// ─── Subject Deletion (single + filtered bulk) ───────────────────────────────
+
+export interface DeleteSubjectResult {
+  subject_id: string
+  episodes_deleted: number
+  memories_deleted: number
+}
+
+export interface BulkDeleteFilter {
+  subject_id_prefix?: string
+  older_than_days?: number
+  tenant_id?: string
+}
+
+export interface BulkDeleteSample {
+  subject_id: string
+  tenant_id: string | null
+  episode_count: number
+  memory_count: number
+  last_episode_at: string | null
+}
+
+export interface BulkDeletePreview {
+  matched: number
+  sample: BulkDeleteSample[]
+  total_episodes: number
+  total_memories: number
+}
+
+export interface BulkDeleteResult {
+  deleted_subjects: number
+  deleted_episodes: number
+  deleted_memories: number
+  failed: string[]
+}
+
+async function readError(res: Response): Promise<string> {
+  try {
+    const data = await res.json()
+    return data?.error?.message ?? data?.detail ?? `HTTP ${res.status}`
+  } catch {
+    return `HTTP ${res.status}`
+  }
+}
+
+/** Delete a single subject (cascades to all its episodes + memories). Irreversible. */
+export async function deleteSubject(
+  subjectId: string,
+  tenantId?: string
+): Promise<DeleteSubjectResult> {
+  let path = `/admin/subjects/${encodeURIComponent(subjectId)}`
+  if (tenantId) path += `?tenant_id=${encodeURIComponent(tenantId)}`
+  const res = await fetch(adminUrl(path), { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+/** Preview the subjects a filter would match — read-only, safe to run repeatedly. */
+export async function previewBulkDelete(filter: BulkDeleteFilter): Promise<BulkDeletePreview> {
+  const res = await fetch(adminUrl('/admin/subjects/preview-delete'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(filter),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+/**
+ * Commit a previously previewed bulk delete. The server refuses with 409 if
+ * the matched count has drifted since the preview — re-preview and retry.
+ */
+export async function commitBulkDelete(
+  filter: BulkDeleteFilter,
+  expectedCount: number
+): Promise<BulkDeleteResult> {
+  const res = await fetch(adminUrl('/admin/subjects/bulk-delete'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...filter, expected_count: expectedCount, confirm: true }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

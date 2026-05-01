@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, Link, useSearchParams } from 'react-router-dom'
-import { Tabs, TabPanel, LoadingOverlay, LoadingState, ErrorState, Badge, HealthBadge, EmptyState, NoResultsState, Pagination } from '../components/ui'
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { Tabs, TabPanel, LoadingOverlay, LoadingState, ErrorState, Badge, HealthBadge, EmptyState, NoResultsState, Pagination, Modal } from '../components/ui'
 import { EpisodeDetailModal } from '../components/EpisodeDetailModal'
 import { MemoryDetailModal } from '../components/MemoryDetailModal'
 import { SourceEpisodesModal } from '../components/SourceEpisodesModal'
@@ -9,6 +9,7 @@ import {
   fetchSubjectMemories,
   fetchSubjectEpisodes,
   fetchSubjectSessions,
+  deleteSubject,
   type SubjectDetailResponse,
   type MemoryListItem,
   type EpisodeListItem,
@@ -24,9 +25,17 @@ type TabId = (typeof VALID_TABS)[number]
 export function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [detail, setDetail] = useState<SubjectDetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Delete-subject flow: type-to-confirm with the subject's own id as the
+  // safety phrase. Native confirm() is too easy to dismiss; an explicit verbal
+  // match makes accidental deletes very hard.
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // URL-derived state with validation
   const urlTab = searchParams.get('tab')
@@ -170,6 +179,17 @@ export function SubjectDetailPage() {
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-semibold text-theme-primary font-mono">{detail.subject_id}</h1>
           <HealthBadge state={detail.health?.state ?? null} score={detail.health?.score} />
+          <button
+            onClick={() => {
+              setDeleteConfirmInput('')
+              setDeleteError(null)
+              setShowDeleteModal(true)
+            }}
+            className="ml-auto text-xs px-3 py-1.5 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors"
+            title="Permanently delete all episodes and memories for this subject"
+          >
+            Delete subject
+          </button>
         </div>
         <p className="text-sm text-theme-muted mt-1">
           {detail.tenant_id && (
@@ -223,12 +243,80 @@ export function SubjectDetailPage() {
         />
       </TabPanel>
       <TabPanel isActive={activeTab === 'sessions'}>
-        <SessionsTab 
+        <SessionsTab
           subjectId={detail.subject_id}
           tenantId={detail.tenant_id}
           onViewEpisodesForSession={handleViewEpisodesForSession}
         />
       </TabPanel>
+
+      <Modal
+        open={showDeleteModal}
+        onClose={() => { if (!deleting) setShowDeleteModal(false) }}
+        title="Delete subject permanently"
+      >
+        <div className="space-y-4 text-sm">
+          <p className="text-theme-primary">
+            This will <strong>permanently delete</strong> all episodes and memories for{' '}
+            <span className="font-mono text-red-400">{detail.subject_id}</span>. This cannot be undone.
+          </p>
+          <ul className="text-xs text-theme-muted list-disc pl-5 space-y-1">
+            <li>{detail.summary.episode_count} episodes will be removed</li>
+            <li>{detail.summary.memory_count} memories will be removed</li>
+            {detail.summary.session_count > 0 && (
+              <li>{detail.summary.session_count} sessions will be discarded</li>
+            )}
+            <li>A <code className="font-mono">subject.deleted</code> webhook will fire</li>
+          </ul>
+          <div>
+            <label className="block text-xs text-theme-muted mb-1">
+              To confirm, type the subject id:{' '}
+              <span className="font-mono text-theme-secondary">{detail.subject_id}</span>
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmInput}
+              onChange={(e) => setDeleteConfirmInput(e.target.value)}
+              autoFocus
+              disabled={deleting}
+              className="w-full px-3 py-2 text-sm font-mono rounded border border-theme-border bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-red-500/50 disabled:opacity-60"
+              placeholder={detail.subject_id}
+            />
+          </div>
+          {deleteError && (
+            <p className="text-xs text-red-400">{deleteError}</p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => { if (!deleting) setShowDeleteModal(false) }}
+              disabled={deleting}
+              className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-secondary hover:bg-theme-surface-1 disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                if (deleteConfirmInput !== detail.subject_id) return
+                setDeleting(true)
+                setDeleteError(null)
+                try {
+                  await deleteSubject(detail.subject_id, detail.tenant_id ?? undefined)
+                  setShowDeleteModal(false)
+                  navigate('/subjects')
+                } catch (err) {
+                  setDeleteError(err instanceof Error ? err.message : 'Delete failed')
+                } finally {
+                  setDeleting(false)
+                }
+              }}
+              disabled={deleting || deleteConfirmInput !== detail.subject_id}
+              className="px-3 py-1.5 text-xs rounded bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {deleting ? 'Deleting…' : 'Delete permanently'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
