@@ -31,12 +31,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     headers['X-API-Key'] = apiKey
   }
 
+  // Forward body on write methods. Vercel parses JSON into req.body for us
+  // when content-type is application/json — re-serialize for a predictable
+  // upstream wire format.
+  const method = (req.method || 'GET').toUpperCase()
+  const hasBody = method !== 'GET' && method !== 'HEAD' && req.body !== undefined && req.body !== null
+  const init: { method: string; headers: Record<string, string>; body?: string } = { method, headers }
+  if (hasBody) {
+    init.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body)
+  }
+
   try {
-    console.info('[statewave-admin] Proxying to:', `${apiUrl}${path}`)
-    const upstream = await fetch(`${apiUrl}${path}`, {
-      method: req.method || 'GET',
-      headers,
-    })
+    console.info('[statewave-admin] Proxying to:', `${method} ${apiUrl}${path}`)
+    const upstream = await fetch(`${apiUrl}${path}`, init)
 
     const body = await upstream.text()
     console.info('[statewave-admin] Upstream response:', upstream.status)
