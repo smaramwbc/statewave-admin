@@ -2,6 +2,7 @@ import React from 'react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import App from '../src/App'
+import { isSessionUrl, makeSessionMock } from './setup'
 
 const mockDashboard = {
   readiness: {
@@ -35,6 +36,7 @@ const mockUsage = {
 
 function mockFetchSuccess() {
   vi.spyOn(global, 'fetch').mockImplementation((url) => {
+    if (isSessionUrl(url)) return Promise.resolve(makeSessionMock())
     const u = typeof url === 'string' ? url : url.toString()
     // URL contains /admin/usage via the proxy path parameter
     if (u.includes('usage')) {
@@ -53,10 +55,17 @@ describe('Admin Dashboard', () => {
     cleanup()
   })
 
-  it('renders loading state initially', () => {
-    vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
-    render(<App />)
-    expect(screen.getByText('Loading dashboard…')).toBeInTheDocument()
+  it('renders loading state initially', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (isSessionUrl(url)) return Promise.resolve(makeSessionMock())
+      return new Promise(() => {})
+    })
+    await act(async () => {
+      render(<App />)
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Loading dashboard…')).toBeInTheDocument()
+    })
     // Should have spinner overlay
     expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
@@ -88,9 +97,14 @@ describe('Admin Dashboard', () => {
   })
 
   it('renders error state on fetch failure', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'))
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (isSessionUrl(url)) return Promise.resolve(makeSessionMock())
+      return Promise.reject(new Error('Network error'))
+    })
 
-    render(<App />)
+    await act(async () => {
+      render(<App />)
+    })
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load dashboard')).toBeInTheDocument()

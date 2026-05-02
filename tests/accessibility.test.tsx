@@ -3,15 +3,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider } from '../src/lib/theme'
+import { AuthProvider } from '../src/lib/auth'
 import { Shell } from '../src/components/layout/Shell'
 import { Modal } from '../src/components/ui/Modal'
 import { Pagination } from '../src/components/ui/Pagination'
 import { FilterSelect } from '../src/components/ui/FilterSelect'
+import { isSessionUrl, makeSessionMock } from './setup'
 
 function renderWithProviders(ui: React.ReactElement) {
+  // Shell now uses useAuth — provide a session mock so AuthProvider settles.
+  vi.spyOn(global, 'fetch').mockImplementation((url) => {
+    if (isSessionUrl(url)) return Promise.resolve(makeSessionMock())
+    return Promise.resolve({ ok: true, json: async () => ({}) } as Response)
+  })
   return render(
     <ThemeProvider>
-      <MemoryRouter>{ui}</MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </AuthProvider>
     </ThemeProvider>
   )
 }

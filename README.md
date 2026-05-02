@@ -2,11 +2,13 @@
 
 Operator console for Statewave instances — system health, subject explorer, compile jobs, webhook status, and usage metering.
 
-> **Part of the Statewave ecosystem:** [Server](https://github.com/smaramwbc/statewave) · [Python SDK](https://github.com/smaramwbc/statewave-py) · [TypeScript SDK](https://github.com/smaramwbc/statewave-ts) · [Docs](https://github.com/smaramwbc/statewave-docs) · [Website + demo](https://statewave.ai) · **Admin**
+> **Part of the Statewave ecosystem:** [Server](https://github.com/smaramwbc/statewave) · [Python SDK](https://github.com/smaramwbc/statewave-py) · [TypeScript SDK](https://github.com/smaramwbc/statewave-ts) · [Docs](https://github.com/smaramwbc/statewave-docs) · [Examples](https://github.com/smaramwbc/statewave-examples) · [Website + demo](https://statewave.ai) · **Admin**
 >
 > 📋 **Issues & feature requests:** [statewave/issues](https://github.com/smaramwbc/statewave/issues) (centralized tracker)
 
-> **Frontend role:** This is the **operator/admin console** — internal dashboard for monitoring and operating Statewave. For the marketing website and embedded interactive demo, see [statewave-web](https://github.com/smaramwbc/statewave-web).
+> **Frontend role:** This is the **operator/admin console** — a privileged dashboard for monitoring and operating Statewave. For the marketing website and embedded interactive demo, see [statewave-web](https://github.com/smaramwbc/statewave-web).
+
+> ⚠️ **Privileged interface — secure-by-default.** statewave-admin ships with a built-in password gate enabled by default. In production, `ADMIN_PASSWORD` and `ADMIN_SESSION_SECRET` are required; without them, login and `/api/proxy` are blocked. The console is intended for **private deployment** — community users should run their own admin connected to their own backend. `admin.statewave.ai` is private and is not a public demo. For public demos, use [statewave-demo](https://github.com/smaramwbc/statewave-web).
 
 ## Screenshots
 
@@ -18,91 +20,81 @@ Operator console for Statewave instances — system health, subject explorer, co
 
 ![Subjects explorer](docs/screenshots/subjects.png)
 
-## Current capabilities (v0.8)
+## Vendor-neutral by design
 
-This is a **read-only admin console** for operators to inspect a running Statewave instance at scale.
+Nothing in this repo is bound to a specific cloud or PaaS. The runtime is a small standalone Node HTTP server (zero npm runtime dependencies — only `node:*` built-ins) plus a Vite build of the React UI. Deploy it:
 
-| Feature | Status |
-|---------|--------|
-| System readiness status | ✅ Live |
-| Database/migration health | ✅ Live |
-| Compile job counts by status | ✅ Live |
-| Data counts (subjects, episodes, memories) | ✅ Live |
-| Webhook delivery status | ✅ Live |
-| Usage metering (rolling windows) | ✅ Live |
-| Subject health distribution | ✅ Live |
-| **Subject explorer (search/filter)** | ✅ New |
-| **Subject detail (memories, episodes, sessions)** | ✅ New |
-| **Memory provenance inspection** | ✅ New |
-| **Episode timeline** | ✅ New |
-| **Health/SLA breakdown** | ✅ New |
-| Memory editing / write operations | ❌ Not yet |
-| Advanced job management | ❌ Not yet |
+- on any container runtime (Docker, Kubernetes, Nomad, ECS, App Runner, Cloud Run, Render, …)
+- on a bare VPS or VM behind nginx / Caddy / Traefik / HAProxy
+- on any PaaS that runs Node (no platform-specific config)
+- behind any identity-aware proxy (Cloudflare Access, OAuth2 Proxy, AWS ALB + Cognito, IAP, Pomerium, …)
 
-### New in v0.8: Subject Explorer
+The same auth handlers run in dev (Vite middleware), in tests, and in production. See [DEPLOYMENT.md](DEPLOYMENT.md) for runnable examples per host.
 
-The admin console now includes a full subject explorer for operator inspection:
-
-- **Subject list** with search by ID, filter by health state, and sort options
-- **Subject detail page** with:
-  - Summary stats (episodes, memories, sessions)
-  - Health score breakdown with contributing factors
-  - SLA metrics (first response time, resolution time, breaches)
-  - Paginated memories list with status filter
-  - Paginated episodes timeline with payload inspection
-  - Sessions overview
-
-This enables operators to:
-- Find any subject quickly by ID search
-- Filter subjects by health state (healthy, watch, degraded, critical)
-- Drill down into subject details
-- Trace memory provenance to source episodes
-- Understand health and SLA state
-
-**Design philosophy:** Calm, dense, precise operator UX — not a flashy marketing dashboard.
-
-> **⚠️ Security Notice:** This is an internal/operator tool intended for **private deployment only**. Do not deploy publicly without an access gateway (Cloudflare Access, OAuth2 Proxy, or equivalent enterprise SSO layer). See [DEPLOYMENT.md](DEPLOYMENT.md) for the full security model and deployment guide.
-
-## Quick start
+## Quick start (local dev)
 
 ```bash
 npm install
+cp .env.example .env.local
+# in .env.local set ADMIN_AUTH_DISABLED=true for local-only dev
 npm run dev
 ```
 
-Open http://localhost:5174
+Open http://localhost:5173. A bright warning banner appears across the top whenever `ADMIN_AUTH_DISABLED=true`.
+
+## Quick start (production-style local)
+
+```bash
+npm install
+export STATEWAVE_API_URL=http://localhost:8100
+export ADMIN_PASSWORD="$(openssl rand -base64 32)"
+export ADMIN_SESSION_SECRET="$(openssl rand -hex 32)"
+npm run build
+npm start
+# → http://localhost:8080 — sign in with the password you just generated
+```
 
 ## Configuration
 
+All variables are **server-side only**. None may use a `VITE_*` prefix — those would be baked into the public bundle.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_BASE_URL` | `http://localhost:8100` | Statewave API base URL |
+| `STATEWAVE_API_URL` | _(none)_ | Statewave backend base URL (server-side proxy target) |
+| `STATEWAVE_API_KEY` | _(none)_ | API key forwarded as `X-API-Key` to the backend |
+| `ADMIN_PASSWORD` | _(none)_ | Required in production unless `ADMIN_AUTH_DISABLED=true` |
+| `ADMIN_SESSION_SECRET` | _(none)_ | HMAC secret for signing the session cookie. Required in production unless disabled |
+| `ADMIN_SESSION_TTL_HOURS` | `12` | Session cookie lifetime in hours |
+| `ADMIN_AUTH_DISABLED` | `false` | Local-dev escape hatch; shows a warning banner when true |
+| `ADMIN_TRUST_GATEWAY_HEADERS` | `false` | Accept identity from a fronting proxy (Cloudflare Access etc.) |
+| `ADMIN_ALLOWED_EMAILS` | _(empty)_ | Comma-separated allowlist for gateway-supplied emails |
+| `PORT` | `8080` | Standalone Node server listen port |
+| `HOST` | `0.0.0.0` | Standalone Node server bind host |
+| `ADMIN_STATIC_DIR` | `./dist` | Path to the built static frontend |
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server on port 5174 |
-| `npm run build` | Production build to `dist/` |
-| `npm run preview` | Preview production build |
-| `npm test` | Run tests with Vitest |
-| `npm run lint` | ESLint check |
+| `npm run dev` | Vite dev server + auth middleware in-process |
+| `npm run build` | Frontend (`dist/`) + Node server (`dist-server/`) |
+| `npm run build:client` | Frontend only |
+| `npm run build:server` | Node server only |
+| `npm start` | Run the standalone Node server (after build) |
+| `npm run preview` | Preview the static frontend (no auth — for asset checks only) |
+| `npm test` | Run Vitest |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript across client + server |
 
 ## Stack
 
 - Vite 8 + React 19 + TypeScript
 - Tailwind CSS v4
 - Vitest + Testing Library
+- Standalone Node HTTP server with **zero npm runtime dependencies**
 
 ## Deployment
 
-This app is designed for **private/internal deployment**. Do not expose on the public internet without an authenticated access gateway.
+statewave-admin is a privileged operator console. Never deploy it publicly without protection. The built-in password gate is the baseline; for team/business use, layer an identity-aware proxy on top.
 
-For local use:
-
-```bash
-npm run build
-npm run preview
-```
-
-For team/business deployment, see [DEPLOYMENT.md](DEPLOYMENT.md).
+See [DEPLOYMENT.md](DEPLOYMENT.md) for end-to-end recipes (Docker, Kubernetes, nginx, Caddy, Cloudflare Access, OAuth2 Proxy) and [SECURITY.md](SECURITY.md) for the threat model.
