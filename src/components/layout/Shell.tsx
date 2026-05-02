@@ -1,8 +1,10 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { ThemeSwitcher } from '../ThemeSwitcher'
+import { useAuth } from '../../lib/auth'
 
 export function Shell() {
+  const { authDisabled, logout } = useAuth()
   return (
     <div className="min-h-screen bg-[var(--theme-surface-0)] flex">
       {/* Skip to main content link */}
@@ -17,6 +19,15 @@ export function Shell() {
         {/* Top bar */}
         <header className="h-14 border-b border-theme-border bg-[var(--theme-card-bg)] flex items-center justify-end px-4 gap-3 shrink-0">
           <ThemeSwitcher />
+          {!authDisabled && (
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="text-xs text-theme-secondary hover:text-theme-primary px-2 py-1 rounded-lg border border-theme-border bg-[var(--theme-surface-1)] hover:bg-[var(--theme-surface-2)] transition-colors"
+            >
+              Sign out
+            </button>
+          )}
         </header>
         {/* Main content */}
         <main id="main-content" className="flex-1 overflow-auto">

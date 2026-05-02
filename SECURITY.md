@@ -54,6 +54,35 @@ Statewave maintains security through:
 - **Access Control:** Principle of least privilege for all systems
 - **Audit Logging:** Provenance tracking for all data operations
 
+## statewave-admin posture
+
+statewave-admin is a privileged operator console. It is **secure-by-default**:
+
+- A built-in password gate is enabled by default.
+- In production, `ADMIN_PASSWORD` and `ADMIN_SESSION_SECRET` are required;
+  without them, login and `/api/proxy` are blocked (`503 auth_not_configured`).
+- The escape hatch `ADMIN_AUTH_DISABLED=true` is for local development only and
+  surfaces a visible warning banner in the UI.
+- All secrets stay server-side. The browser never receives the admin password,
+  the session secret, or `STATEWAVE_API_KEY`. No `VITE_*` variable holds a
+  credential.
+- The session cookie is HMAC-signed, HttpOnly, `SameSite=Lax`, `Path=/`, and
+  `Secure` in production. Password comparison and signature verification are
+  constant-time.
+- The deployment story is **vendor-neutral** — a small Node HTTP server with
+  zero npm runtime dependencies. There is no platform-specific code path.
+- For team / business use, layer an identity-aware proxy (Cloudflare Access,
+  OAuth2 Proxy, IAP, ALB + Cognito, Pomerium, nginx auth_request, VPN, …) in
+  front. With `ADMIN_TRUST_GATEWAY_HEADERS=true` the proxy will accept the
+  gateway's verified identity in lieu of a cookie session.
+
+`admin.statewave.ai` is a private deployment. There is no public demo of the
+admin. Public demos happen through `statewave-demo` / `statewave-web`.
+Community users should deploy their own admin connected to their own backend;
+never deploy a public admin without protection.
+
+See [statewave-admin/DEPLOYMENT.md](https://github.com/smaramwbc/statewave-admin/blob/main/DEPLOYMENT.md) for the full deployment & threat model.
+
 ## Responsible Disclosure
 
 We believe in responsible disclosure and will:

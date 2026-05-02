@@ -1,200 +1,251 @@
 # Deployment Guide — statewave-admin
 
-## Purpose
+## What this is
 
-`statewave-admin` is an **operator console** for Statewave instances. It provides system health visibility, memory/episode statistics, migration status, compile job monitoring, and webhook diagnostics.
+`statewave-admin` is a **privileged operator console**. It exposes the full `/admin/*` surface of a Statewave instance: subject explorer, memory provenance, compile jobs, webhook diagnostics, and bulk-delete tooling. Anyone who reaches it without a credential check has full read/write access to operator data.
 
-It is **not** a public-facing product. It is an internal tool intended for:
+For that reason, statewave-admin ships **secure-by-default**:
 
-- Platform operators
-- DevOps engineers
-- On-call teams monitoring a Statewave deployment
+- A built-in password gate is enabled by default.
+- In production, `ADMIN_PASSWORD` and `ADMIN_SESSION_SECRET` are **required** — without them, login and `/api/proxy` return `503 auth_not_configured`.
+- The escape hatch `ADMIN_AUTH_DISABLED=true` is for local development only and surfaces a visible warning banner in the UI.
 
-In v1, it is designed for **private/internal deployment only**.
-
----
-
-## Security Model
-
-### Why static frontends cannot safely hold admin secrets
-
-`statewave-admin` is a Vite-built static SPA. Vite's `VITE_*` environment variables are **baked into the JavaScript bundle at build time** via compile-time string replacement. This means:
-
-- Any `VITE_*` value is **visible in the shipped JS source** (View Source, DevTools, CDN cache)
-- There is no server-side rendering, no session management, no token exchange
-- A `VITE_API_KEY` in a public bundle means anyone who loads the page can extract the key
-
-### Why public deployment without access control is unsafe
-
-If `statewave-admin` were deployed on a public CDN and needed to authenticate against protected `/admin` endpoints, the only option would be embedding an API key in the browser bundle. This would allow **any visitor** to:
-
-- Read all admin data (episodes, memories, subjects, health)
-- Call write endpoints (export, import, delete subjects)
-- Bypass intended access control entirely
-
-This is equivalent to publishing your admin credentials in your HTML.
-
-### Why private/internal deployment is acceptable in v1
-
-When `statewave-admin` is only accessible from:
-
-- `localhost` (developer's machine)
-- A private network (VPN, Tailscale, internal DNS)
-- An authenticated reverse proxy
-
-...then no credentials are exposed to the public internet. The backend can run with auth disabled (local dev) or with an API key that only travels over trusted internal networks.
-
-### Why edge auth/gateway is the recommended business path
-
-For production/business use, the recommended approach is an **access gateway** (Cloudflare Access, OAuth2 Proxy, AWS ALB + Cognito, Tailscale ACLs) that:
-
-- Authenticates operators via enterprise SSO (OIDC/SAML)
-- Issues a session cookie after identity verification
-- Proxies requests to the static frontend and/or backend
-- Never exposes credentials to the browser's JavaScript context
-
-This gives full enterprise SSO support (Entra ID, Okta, Google Workspace) with zero custom auth code in `statewave-admin`.
+The deployment story is **vendor-neutral**: a tiny standalone Node HTTP server (zero npm runtime deps) plus a Vite-built static bundle. Deploy it on any platform that runs Node, behind any reverse proxy, or in any container runtime. There is no platform-specific code, config, or build step.
 
 ---
 
-## Supported Deployment Modes
+## Threat model in one paragraph
 
-### 1. Local-only (localhost)
+Static SPAs cannot safely hold admin secrets. Anything in a `VITE_*` env var is compiled into the JavaScript bundle and visible to anyone who loads the page. statewave-admin keeps every secret on the server (`/api/proxy`, `/api/auth/*`) and never exposes them to the browser. The browser only ever holds a signed, HttpOnly session cookie. The backend `STATEWAVE_API_KEY`, the admin password, and the session secret never leave the server process.
 
-The default development and operator mode.
+---
 
-```bash
-cd statewave-admin
-npm run dev        # → http://localhost:5174
+## Required environment
+
+```env
+# Backend (server-side only)
+STATEWAVE_API_URL=https://your-statewave-backend
+STATEWAVE_API_KEY=...
+
+# Built-in password gate (required in production)
+ADMIN_PASSWORD=replace-with-long-random-password
+ADMIN_SESSION_SECRET=replace-with-32-byte-random-secret
+ADMIN_SESSION_TTL_HOURS=12
+ADMIN_AUTH_DISABLED=false
+
+# Optional: trust a fronting identity proxy
+ADMIN_TRUST_GATEWAY_HEADERS=false
+ADMIN_ALLOWED_EMAILS=
 ```
 
-Backend runs locally with `STATEWAVE_API_KEY` unset (open access).
-
-### 2. Private network / VPN / Tailscale
-
-Deploy as a static site on an internal host. Only accessible to operators on the private network.
+Generate strong values:
 
 ```bash
-npm run build
-# Serve dist/ on an internal host (nginx, caddy, python -m http.server)
+openssl rand -base64 32   # → ADMIN_PASSWORD
+openssl rand -hex 32      # → ADMIN_SESSION_SECRET
 ```
 
-Backend is on the same private network. API key may be set but only traverses trusted internal links.
+For local dev only:
 
-### 3. Internal reverse proxy (nginx, Caddy, Traefik)
+```env
+ADMIN_AUTH_DISABLED=true
+```
 
-Place the static site behind a reverse proxy that also proxies `/admin` API calls to the backend. Access is restricted by network policy or basic auth at the proxy level.
-
-### 4. Edge access gateway (recommended for business use)
-
-Deploy the static site behind an identity-aware access gateway:
-
-| Gateway | SSO Support | Cost |
-|---------|-------------|------|
-| Cloudflare Access | OIDC, SAML (Entra, Okta, Google) | Free <50 users |
-| OAuth2 Proxy | Any OIDC provider | Free (self-hosted) |
-| Tailscale Funnel + ACLs | Tailscale identity | Free for small teams |
-| AWS ALB + Cognito | OIDC, SAML | AWS pricing |
-
-The gateway authenticates operators before they can reach the static site or the backend API.
+A bright warning banner is rendered above the admin UI whenever this is set. Production deployments must never set it.
 
 ---
 
-## Recommended v1 Deployment
+## Deployment Recipes
 
-**Posture:** Private/internal only.
+All recipes use the same artifacts: `dist/` (frontend) and `dist-server/` (Node HTTP server). Build once, deploy anywhere.
 
-- Run locally or on a private network
-- Backend `STATEWAVE_API_KEY` is either unset (local) or set and only accessible internally
-- No public internet exposure
-- No API keys in browser bundles
-
-This is appropriate for:
-
-- Solo developers running Statewave locally
-- Small teams with VPN/Tailscale access to shared infra
-- Internal staging environments
-
-## Recommended v2 Deployment
-
-**Posture:** Edge-authenticated access for business/team use.
-
-- Static site deployed to CDN or internal host
-- Access gateway (Cloudflare Access or OAuth2 Proxy) authenticates operators via enterprise SSO
-- Gateway issues session cookie; browser never sees raw API keys
-- Backend optionally validates gateway-injected identity headers for audit logging
-
-**Backend changes needed:** Minimal — optionally trust a gateway-injected header (e.g., `X-Forwarded-User`, `Cf-Access-Authenticated-User-Email`) for audit trails.
-
----
-
-## Configuration
-
-| Variable | Default | Context | Description |
-|----------|---------|---------|-------------|
-| `VITE_API_BASE_URL` | `http://localhost:8100` | Build-time | Statewave backend base URL |
-
-### Local development assumptions
-
-- Backend running at `http://localhost:8100`
-- `STATEWAVE_API_KEY` unset (open access mode)
-- Postgres running locally (via `docker compose up -d db` in the `statewave` repo)
-
-### Private deployment assumptions
-
-- Backend accessible on the same private network
-- `VITE_API_BASE_URL` set to internal backend URL at build time
-- If `STATEWAVE_API_KEY` is set, the admin frontend sends it via `X-API-Key` header — acceptable only because the network is private
-
----
-
-## Local Development
+### 1. Docker (works on Docker, Kubernetes, ECS, Nomad, Cloud Run, App Runner, Render, fly, Railway, …)
 
 ```bash
-# 1. Start backend (from statewave repo)
-cd statewave
-docker compose up -d db
-uvicorn server.main:app --port 8100
+docker build -t statewave-admin .
+docker run -p 8080:8080 \
+  -e STATEWAVE_API_URL=https://your-backend \
+  -e STATEWAVE_API_KEY=... \
+  -e ADMIN_PASSWORD=... \
+  -e ADMIN_SESSION_SECRET=... \
+  statewave-admin
+```
 
-# 2. Start admin dashboard
-cd statewave-admin
+The provided `Dockerfile` is intentionally generic — no platform-specific config. Push the image to whichever registry you use.
+
+### 2. Bare Node (VPS, VM, systemd)
+
+```bash
 npm install
-npm run dev
-# → http://localhost:5174
-```
-
-To build for preview:
-
-```bash
 npm run build
-npm run preview
+NODE_ENV=production \
+STATEWAVE_API_URL=https://your-backend \
+STATEWAVE_API_KEY=... \
+ADMIN_PASSWORD=... \
+ADMIN_SESSION_SECRET=... \
+PORT=8080 \
+node dist-server/index.js
 ```
 
-To run tests:
+A minimal systemd unit:
+
+```ini
+[Service]
+WorkingDirectory=/opt/statewave-admin
+EnvironmentFile=/etc/statewave-admin.env
+ExecStart=/usr/bin/node dist-server/index.js
+Restart=on-failure
+User=statewave
+[Install]
+WantedBy=multi-user.target
+```
+
+### 3. Behind nginx (TLS, identity proxy, IP allowlist)
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name admin.example.com;
+
+  # Optional: IP allowlist
+  allow 10.0.0.0/8;
+  deny all;
+
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+```
+
+### 4. Behind Caddy
+
+```caddyfile
+admin.example.com {
+  reverse_proxy 127.0.0.1:8080
+}
+```
+
+### 5. Behind any identity-aware proxy (Cloudflare Access, OAuth2 Proxy, AWS ALB + Cognito, GCP IAP, Pomerium, …)
+
+statewave-admin can layer the **built-in password gate** behind a **gateway** that authenticates operators via SSO. Two ways to compose them:
+
+**A) Use the built-in gate only** — proxy passes through, browser sees the login form.
+The gateway just enforces network-level access (e.g. corporate IP allowlist, mTLS, SSO).
+
+**B) Trust the gateway's identity** — set `ADMIN_TRUST_GATEWAY_HEADERS=true`. The proxy will accept the gateway's verified identity in lieu of a cookie session, on any of:
+
+- `Cf-Access-Authenticated-User-Email` (Cloudflare Access)
+- `X-Forwarded-User` (OAuth2 Proxy, IAP, Pomerium, common reverse proxies)
+- `X-Admin-Email` (custom)
+
+Optionally restrict to known operator emails:
+
+```env
+ADMIN_TRUST_GATEWAY_HEADERS=true
+ADMIN_ALLOWED_EMAILS=alice@example.com,bob@example.com
+```
+
+⚠️ Only enable `ADMIN_TRUST_GATEWAY_HEADERS=true` when a trusted upstream actually sets and strips these headers. If exposed directly to the internet, an attacker could spoof them.
+
+### 6. Kubernetes
+
+A standard Deployment + Service + Ingress is sufficient. Mount secrets via a `Secret` and inject as env. Pair with your existing ingress identity layer if you have one.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+      - name: admin
+        image: your-registry/statewave-admin:latest
+        envFrom:
+        - secretRef:
+            name: statewave-admin-secrets
+        ports:
+        - containerPort: 8080
+```
+
+### 7. Custom Node host (Express / Connect / Fastify embedding)
+
+The handlers in `server/handlers.ts` are plain Node `(req, res)` functions. Mount them inside your existing Node app:
+
+```ts
+import express from 'express'
+import { dispatch } from 'statewave-admin/server/handlers'
+
+const app = express()
+app.use(async (req, res, next) => {
+  if (await dispatch(req, res)) return
+  next()
+})
+```
+
+---
+
+## Composing with external auth layers
+
+Even with the built-in gate, **a fronting identity layer is recommended** for team / business use because it gives you:
+
+- Enterprise SSO (Entra ID, Okta, Google Workspace, …)
+- Per-operator identity in audit logs (when `ADMIN_TRUST_GATEWAY_HEADERS=true`)
+- Network-level isolation
+- IP allowlisting and mTLS
+
+| Layer | Auth model | Typical cost |
+|-------|------------|--------------|
+| Cloudflare Access | OIDC, SAML, magic-link | Free under 50 users |
+| OAuth2 Proxy | Any OIDC provider | Self-hosted, free |
+| AWS ALB + Cognito | OIDC, SAML | Per-AWS pricing |
+| GCP IAP | Google identity | Per-GCP pricing |
+| Tailscale / Tailnet ACLs | Tailscale identity | Free for small teams |
+| Pomerium | Any OIDC | Self-hosted, free |
+| nginx + auth_request | Anything | Free |
+| VPN-only | Network identity | Existing infra |
+
+These compose with — they do not replace — the built-in gate.
+
+---
+
+## Safety checklist (before exposing the admin)
+
+- [ ] `ADMIN_PASSWORD` and `ADMIN_SESSION_SECRET` are set with strong random values.
+- [ ] `ADMIN_AUTH_DISABLED` is unset or `false`.
+- [ ] `STATEWAVE_API_KEY` is set on the **server** only, never as a `VITE_*` variable.
+- [ ] No `VITE_*` variable contains a credential, internal URL, or token.
+- [ ] The admin host is not on a public DNS name without a fronting proxy or IP allowlist.
+- [ ] If `ADMIN_TRUST_GATEWAY_HEADERS=true`, a trusted reverse proxy strips and replaces the listed headers on every request.
+- [ ] `ADMIN_ALLOWED_EMAILS` is set when using the gateway path with multiple users.
+- [ ] TLS is terminated upstream (nginx, Caddy, ALB, Cloudflare, …).
+
+---
+
+## Local development
 
 ```bash
-npm test
+npm install
+cp .env.example .env.local
+# Set ADMIN_AUTH_DISABLED=true for unauthenticated local dev.
+npm run dev
+```
+
+A persistent banner reminds you the gate is off. To rehearse the production gate locally:
+
+```bash
+ADMIN_PASSWORD=devpw ADMIN_SESSION_SECRET=devsecret npm run dev
 ```
 
 ---
 
-## Safety Checklist
+## What is intentionally not built
 
-Before any deployment beyond localhost, verify:
+- No user registration, database users, roles, or per-user permissions.
+- No OAuth/OIDC client. Identity providers are layered above via gateway headers.
+- No password reset flow — operators rotate `ADMIN_PASSWORD` server-side.
+- No frontend-only auth, no client-side tokens, no `VITE_*` secrets.
 
-- [ ] `statewave-admin` is **not** exposed on a public URL without access control
-- [ ] No admin API keys are embedded in `VITE_*` env vars for public builds
-- [ ] Backend `/admin` endpoints are protected (API key set, or network-restricted)
-- [ ] If deploying for a team, an access gateway or VPN restricts who can reach the UI
-- [ ] No sensitive data is cached in public CDN layers without auth gating
-
----
-
-## What Is Intentionally Not Built Yet
-
-- **No built-in login/session system** — auth happens at the network or gateway layer
-- **No OIDC/SAML client code** — enterprise SSO is handled by the access gateway
-- **No role-based access control** — all authenticated operators have full visibility
-- **No public deployment workflow** — CI/CD for public hosting is deferred until access control is in place
-
-These will be addressed when the product moves to v2 edge-authenticated deployment.
+These will be reconsidered when there is a clear team-scale need; today the gate + fronting proxy combination covers the common cases.
