@@ -28,7 +28,8 @@ import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { RefreshControl } from '../components/RefreshControl'
 import { Button, PageHeader } from '../components/ui'
-import { Upload, Trash2 } from 'lucide-react'
+import { Upload, Trash2, RefreshCw } from 'lucide-react'
+import { IconButton } from '../components/ui'
 import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
@@ -99,15 +100,28 @@ function SubjectsHeaderActions({
     },
   ]
 
-  // On phones we render the timestamp inline next to the kebab so the
-  // "Updated HH:MM:SS" freshness signal stays visible on every page.
+  // On phones we render the timestamp + an explicit refresh icon next
+  // to the kebab. Pull-to-refresh is still the primary gesture, but a
+  // tappable icon is useful for one-handed use and for visitors who
+  // haven't discovered the swipe affordance yet. The icon spins while
+  // a refetch is in flight so the visitor gets immediate feedback.
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5 sm:gap-2">
       {lastFetched && (
         <span className="md:hidden text-[11px] text-theme-muted tabular-nums">
           {lastFetched.toLocaleTimeString()}
         </span>
       )}
+      <IconButton
+        aria-label="Refresh subjects"
+        title="Refresh"
+        icon={<RefreshCw className={loading ? 'animate-spin' : undefined} />}
+        variant="ghost"
+        size="sm"
+        onClick={onRefresh}
+        disabled={loading}
+        className="md:hidden"
+      />
       <ActionMenu items={items} label="Subjects page actions" />
     </div>
   )
@@ -374,31 +388,30 @@ export function SubjectsPage() {
                   className="block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3 hover:border-accent/40 hover:bg-[var(--theme-surface-1)]/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none"
                   aria-label={`Open subject ${subject.subject_id}`}
                 >
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1 pr-16">
-                      {/* Subject id renders on a single line and scrolls
-                          horizontally on overflow — same pattern as
-                          SubjectDetail so the user can read the full
-                          tail without tapping in. The pr-16 right pad
-                          reserves space for the absolutely-positioned
-                          copy + kebab cluster in the top-right corner
-                          of the card, so the text never slides under it. */}
-                      <span
-                        className="block text-theme-primary font-mono text-xs whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
-                        title={subject.subject_id}
+                  <div className="min-w-0 pr-20">
+                    {/* Subject id renders on a single line and scrolls
+                        horizontally on overflow — same pattern as
+                        SubjectDetail so the user can read the full
+                        tail without tapping in. The pr-20 right pad
+                        reserves space for the absolutely-positioned
+                        health badge + copy + kebab cluster in the top-
+                        right corner of the card, so the text never
+                        slides under them and the badge never collides
+                        with the kebab on a 320px screen. */}
+                    <span
+                      className="block text-theme-primary font-mono text-xs whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+                      title={subject.subject_id}
+                    >
+                      {subject.subject_id}
+                    </span>
+                    {subject.tenant_id && (
+                      <p
+                        className="mt-0.5 text-[10px] font-mono text-theme-muted whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+                        title={subject.tenant_id}
                       >
-                        {subject.subject_id}
-                      </span>
-                      {subject.tenant_id && (
-                        <p
-                          className="mt-0.5 text-[10px] font-mono text-theme-muted whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
-                          title={subject.tenant_id}
-                        >
-                          tenant: {subject.tenant_id}
-                        </p>
-                      )}
-                    </div>
-                    <HealthBadge state={subject.health_state} score={subject.health_score} />
+                        tenant: {subject.tenant_id}
+                      </p>
+                    )}
                   </div>
                   <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
                     <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
@@ -430,14 +443,19 @@ export function SubjectsPage() {
                     </p>
                   )}
                 </Link>
-                {/* Inline action overlay — the copy + kebab live OUTSIDE
-                    the <Link> so their clicks don't bubble up to the
-                    card-level navigation. They sit absolutely positioned
-                    in the top-right corner of the card. */}
+                {/* Top-right cluster — health badge + copy + kebab. All
+                    of this lives OUTSIDE the wrapping <Link> so clicks
+                    on the kebab and copy buttons don't bubble up to the
+                    card-level navigation. Co-locating the badge here
+                    fixes the visual collision where the green
+                    "healthy (100)" chip used to overlap the kebab on
+                    320px screens — the cluster now sits as a single
+                    column in the top-right corner. */}
                 <div
-                  className="absolute top-2.5 right-2.5 flex items-center gap-1 z-10"
+                  className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10"
                   onClick={(e) => e.stopPropagation()}
                 >
+                  <HealthBadge state={subject.health_state} score={subject.health_score} />
                   <CopyableMono
                     value={subject.subject_id}
                     labelForA11y="subject ID"
