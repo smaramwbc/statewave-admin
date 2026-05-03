@@ -140,7 +140,7 @@ export function SubjectsPage() {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Subjects"
         description="Browse and inspect subject memory, episodes, and health"

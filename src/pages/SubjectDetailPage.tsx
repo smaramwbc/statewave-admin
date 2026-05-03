@@ -164,7 +164,7 @@ export function SubjectDetailPage() {
     // title, badges, delete button) + tabs row + an overview area so the
     // page doesn't blank out and re-shape when the data arrives.
     return (
-      <div className="p-6 max-w-7xl mx-auto" aria-busy="true">
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto" aria-busy="true">
         <div className="mb-6">
           <Skeleton className="h-3 w-24 mb-2" />
           <div className="flex items-center gap-4">
@@ -186,7 +186,7 @@ export function SubjectDetailPage() {
 
   if (error) {
     return (
-      <div className="p-6 max-w-7xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto">
         <ErrorState
           title="Failed to load subject"
           message="The admin proxy could not load this subject's overview, memories, episodes, or sessions."
@@ -208,7 +208,7 @@ export function SubjectDetailPage() {
   ]
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <Link

@@ -245,7 +245,7 @@ export function WebhooksPage() {
   const problemCount = deadLetterCount + stalledCount
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Webhook Events"
         description="Monitor webhook delivery and identify failures"

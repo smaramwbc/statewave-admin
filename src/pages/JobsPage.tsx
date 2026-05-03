@@ -235,7 +235,7 @@ export function JobsPage() {
   const stuckCount = data?.jobs.filter(isStuck).length || 0
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Compile Jobs"
         description="Monitor memory compilation jobs and identify failures"
