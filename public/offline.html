@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Statewave Admin — Offline</title>
+    <meta name="theme-color" content="#0a0f1a" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #0a0f1a;
+        --fg: #f9fafb;
+        --muted: #9ca3af;
+        --accent: #6366f1;
+        --border: rgba(255, 255, 255, 0.08);
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f8fafc;
+          --fg: #0f172a;
+          --muted: #64748b;
+          --border: rgba(0, 0, 0, 0.08);
+        }
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        padding-top: max(env(safe-area-inset-top), 24px);
+        padding-bottom: max(env(safe-area-inset-bottom), 24px);
+      }
+      main {
+        max-width: 32rem;
+        width: 100%;
+        text-align: center;
+      }
+      .icon {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 24px;
+        opacity: 0.9;
+      }
+      h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 12px; letter-spacing: -0.01em; }
+      p { color: var(--muted); margin: 0 0 24px; }
+      button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 20px;
+        border-radius: 8px;
+        background: var(--accent);
+        color: white;
+        font-weight: 500;
+        font-size: 14px;
+        border: 0;
+        cursor: pointer;
+      }
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .hint { font-size: 12px; color: var(--muted); margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img class="icon" src="/favicon.svg" width="56" height="56" alt="" />
+      <h1>You're offline</h1>
+      <p>
+        Statewave Admin needs network access to read live data. Reconnect and
+        try again — your session and any in-flight changes are safe.
+      </p>
+      <button type="button" onclick="window.location.reload()">Try again</button>
+      <p class="hint">
+        Privileged admin data is intentionally never cached for offline use.
+      </p>
+    </main>
+  </body>
+</html>
