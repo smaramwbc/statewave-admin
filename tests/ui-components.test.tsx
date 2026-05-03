@@ -59,7 +59,9 @@ describe('UI Components', () => {
 
     it('shows clear button when has value', () => {
       render(<SearchInput value="test" onChange={() => {}} />)
-      expect(screen.getByText('✕')).toBeInTheDocument()
+      // The clear control is now a labelled icon button (lucide X); the
+      // accessible name is what we pin, not the glyph.
+      expect(screen.getByRole('button', { name: /clear search/i })).toBeInTheDocument()
     })
   })
 
@@ -116,7 +118,12 @@ describe('UI Components', () => {
           onPageChange={() => {}}
         />
       )
-      expect(screen.getByText('← Prev')).toBeDisabled()
+      // The Prev control switched from a text-glyph "← Prev" label to a
+      // lucide ChevronLeft + "Prev" text rendered through the shared
+      // Button primitive. Pin by accessible name instead of text glyph.
+      expect(
+        screen.getByRole('button', { name: 'Go to previous page' }),
+      ).toBeDisabled()
     })
   })
 

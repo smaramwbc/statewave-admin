@@ -120,7 +120,9 @@ describe('JobsPage', () => {
   it('renders loading state initially', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
     renderJobsPage()
-    expect(screen.getByText(/Loading jobs/i)).toBeInTheDocument()
+    // Initial load uses a TableSkeleton (animate-pulse blocks) instead of
+    // the previous full-page LoadingOverlay copy.
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
   it('renders job list after fetch', async () => {
@@ -193,7 +195,9 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('No jobs found')).toBeInTheDocument()
+      // Premium copy: "No jobs yet" + the helper sentence about when
+      // jobs appear. Pinning the title is enough.
+      expect(screen.getByText('No jobs yet')).toBeInTheDocument()
     })
   })
 
@@ -202,7 +206,9 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+      // Structured ErrorState leads with the page-specific title
+      // ("Failed to load jobs") instead of the generic fallback.
+      expect(screen.getByText('Failed to load jobs')).toBeInTheDocument()
     })
   })
 
@@ -243,8 +249,9 @@ describe('JobsPage', () => {
     // Initial fetch
     expect(fetchSpy).toHaveBeenCalledTimes(1)
 
-    // Click refresh
-    fireEvent.click(screen.getByText('Refresh'))
+    // Click refresh — pin by accessible name so we don't match the button
+    // label and the title attribute simultaneously.
+    fireEvent.click(screen.getByRole('button', { name: /refresh page data/i }))
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(2)

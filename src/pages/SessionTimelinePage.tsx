@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
-import { Badge, LoadingOverlay, EmptyState, InlineError } from '../components/ui'
+import { Badge, LoadingOverlay, EmptyState, InlineError, CopyableMono } from '../components/ui'
 import {
   fetchSessionTimeline,
   fetchCitingMemories,
@@ -12,6 +12,7 @@ import {
 import { EpisodeDetailModal } from '../components/EpisodeDetailModal'
 import { MemoryDetailModal } from '../components/MemoryDetailModal'
 import { SourceEpisodesModal } from '../components/SourceEpisodesModal'
+import { AlertTriangle } from 'lucide-react'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -115,8 +116,13 @@ function InlineCitingMemories({ episodeId, subjectId, tenantId, onMemoryClick }:
         Derived Memories
       </p>
       {memories.map((memory) => (
+        // Full-card activatable target — kept as a raw <button> because
+        // Button/IconButton/FilterChip would all reshape the card layout
+        // and force a different visual paradigm. The button still
+        // benefits from the global focus-ring + cursor-pointer rules.
         <button
           key={memory.id}
+          type="button"
           onClick={() => onMemoryClick(memory)}
           className="w-full text-left p-3 rounded-lg bg-[var(--theme-surface-1)] border border-theme-border/30 hover:border-accent/40 hover:bg-accent/5 transition-all group"
         >
@@ -195,8 +201,10 @@ function TimelineEvent({
           isExpanded ? 'border-accent/40 shadow-lg shadow-accent/5' : 'border-theme-border hover:border-theme-border-hover'
         }`}
       >
-        {/* Card header - clickable for episode details */}
+        {/* Card header — full-row click target (raw <button> intentional;
+            see the "Derived Memories" card above for rationale). */}
         <button
+          type="button"
           onClick={onEpisodeClick}
           className="w-full text-left p-4 hover:bg-[var(--theme-surface-1)] transition-colors"
         >
@@ -220,11 +228,16 @@ function TimelineEvent({
           </div>
         </button>
 
-        {/* Memory citation indicator */}
+        {/* Memory citation indicator — full-width disclosure inside the
+            event card. Kept raw because it spans the card edge-to-edge
+            (FilterChip is pill-sized and IconButton is square); the
+            expand semantics are surfaced via aria-expanded instead. */}
         {event.citing_memory_count > 0 && (
           <div className="border-t border-theme-border/50">
             <button
+              type="button"
               onClick={onToggleExpand}
+              aria-expanded={isExpanded}
               className={`w-full px-4 py-2 flex items-center justify-between text-xs transition-colors ${
                 isExpanded
                   ? 'bg-accent/10 text-accent'
@@ -320,8 +333,8 @@ export function SessionTimelinePage() {
   const [sourceEpisodesMemory, setSourceEpisodesMemory] = useState<MemoryListItem | null>(null)
   const [navigationContext, setNavigationContext] = useState<string | null>(null)
 
-  // Copy feedback states
-  const [copiedId, setCopiedId] = useState(false)
+  // Copy feedback state for the deep-link copy button. The session-id
+  // copy lives inside CopyableMono and manages its own state.
   const [copiedLink, setCopiedLink] = useState(false)
 
   // Update URL when expanded state changes
@@ -397,18 +410,7 @@ export function SessionTimelinePage() {
 
   // Build back URL with tab=sessions preserved
   const backToSubjectUrl = `/subjects/${subjectId}?tab=sessions${tenantId ? `&tenant_id=${tenantId}` : ''}`
-  // Copy handlers
-  const handleCopySessionId = async () => {
-    if (!sessionId) return
-    try {
-      await navigator.clipboard.writeText(sessionId)
-      setCopiedId(true)
-      setTimeout(() => setCopiedId(false), 2000)
-    } catch {
-      // Fallback for browsers without clipboard API
-      console.warn('Clipboard API not available')
-    }
-  }
+  // Copy handlers — session-id copy is now owned by CopyableMono.
 
   const handleCopyLink = async () => {
     try {
@@ -454,27 +456,15 @@ export function SessionTimelinePage() {
               Sessions
             </Link>
             <span className="text-theme-muted/50">/</span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="text-theme-secondary font-mono truncate max-w-[180px]" title={sessionId}>
-                {sessionId}
-              </span>
-              <button
-                onClick={handleCopySessionId}
-                className="text-theme-muted hover:text-accent transition-colors p-0.5 rounded hover:bg-accent/10"
-                title="Copy session ID"
-                aria-label="Copy session ID to clipboard"
-              >
-                {copiedId ? (
-                  <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                )}
-              </button>
-            </span>
+            {/* Session id + inline copy affordance share the same
+                CopyableMono treatment used elsewhere in the admin so the
+                copy interaction (Copied / Copy failed toasts, hover-reveal
+                button, accessible label) stays uniform. */}
+            <CopyableMono
+              value={sessionId ?? ''}
+              labelForA11y="session ID"
+              maxWidthClass="max-w-[180px]"
+            />
           </nav>
 
           <div className="flex items-center justify-between gap-4">
@@ -552,14 +542,14 @@ export function SessionTimelinePage() {
               <p className="text-[10px] uppercase tracking-wider text-theme-muted mb-1">First Response</p>
               <p className={`text-lg font-semibold ${timeline.first_response_breached ? 'text-red-400' : 'text-theme-primary'}`}>
                 {timeline.first_response_seconds != null ? formatDuration(timeline.first_response_seconds) : '—'}
-                {timeline.first_response_breached && ' ⚠'}
+                {timeline.first_response_breached && <AlertTriangle className='inline h-3 w-3 ml-1' aria-label='SLA breached' />}
               </p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wider text-theme-muted mb-1">Resolution Time</p>
               <p className={`text-lg font-semibold ${timeline.resolution_breached ? 'text-red-400' : 'text-theme-primary'}`}>
                 {timeline.resolution_seconds != null ? formatDuration(timeline.resolution_seconds) : '—'}
-                {timeline.resolution_breached && ' ⚠'}
+                {timeline.resolution_breached && <AlertTriangle className='inline h-3 w-3 ml-1' aria-label='SLA breached' />}
               </p>
             </div>
             <div>

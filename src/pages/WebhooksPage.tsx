@@ -5,11 +5,15 @@ import {
   Pagination,
   EmptyState,
   NoResultsState,
-  LoadingOverlay,
   ErrorState,
   Badge,
+  TableSkeleton,
+  CopyableMono,
 } from '../components/ui'
 import { fetchWebhookEvents, type WebhookEventListItem } from '../lib/api'
+import { RefreshControl } from '../components/RefreshControl'
+import { PageHeader } from '../components/ui'
+import { AlertTriangle } from 'lucide-react'
 
 const PAGE_SIZE = 50
 
@@ -100,7 +104,12 @@ function EventRow({ event }: { event: WebhookEventListItem }) {
     <tr className="border-b border-theme-border/50 last:border-0 hover:bg-[var(--theme-surface-1)]/50">
       {/* Event ID */}
       <td className="px-4 py-3">
-        <code className="text-xs font-mono text-theme-secondary">{event.id.slice(0, 8)}…</code>
+        <CopyableMono
+          value={event.id}
+          display={`${event.id.slice(0, 8)}…`}
+          labelForA11y="webhook event ID"
+          maxWidthClass="max-w-[10ch]"
+        />
       </td>
 
       {/* Event Type */}
@@ -169,6 +178,7 @@ export function WebhooksPage() {
   const [data, setData] = useState<{ events: WebhookEventListItem[]; total: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastFetched, setLastFetched] = useState<Date | null>(null)
 
   // Extract params from URL
   const statusFilter = searchParams.get('status') || ''
@@ -205,6 +215,7 @@ export function WebhooksPage() {
         offset: (page - 1) * PAGE_SIZE,
       })
       setData({ events: result.events, total: result.total })
+      setLastFetched(new Date())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load webhook events')
     } finally {
@@ -235,13 +246,17 @@ export function WebhooksPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold text-theme-primary">Webhook Events</h1>
-        <p className="text-sm text-theme-muted mt-0.5">
-          Monitor webhook delivery and identify failures
-        </p>
-      </div>
+      <PageHeader
+        title="Webhook Events"
+        description="Monitor webhook delivery and identify failures"
+        actions={
+          <RefreshControl
+            lastFetched={lastFetched}
+            onRefresh={() => void loadData()}
+            loading={loading}
+          />
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4 items-center">
@@ -266,35 +281,43 @@ export function WebhooksPage() {
         </div>
 
         {problemCount > 0 && (
-          <div className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
+          <div className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 inline-flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-red-400" aria-hidden="true" />
             <span className="text-xs text-red-400 font-medium">
-              ⚠ {problemCount} problem event{problemCount > 1 ? 's' : ''} on this page
+              {problemCount} problem event{problemCount > 1 ? 's' : ''} on this page
             </span>
           </div>
         )}
 
         <div className="flex-1" />
-
-        <button
-          onClick={() => loadData()}
-          disabled={loading}
-          className="px-3 py-1.5 text-xs text-theme-muted hover:text-theme-secondary border border-theme-border rounded-lg hover:bg-[var(--theme-surface-1)] transition-colors disabled:opacity-50"
-        >
-          {loading ? 'Refreshing…' : 'Refresh'}
-        </button>
       </div>
 
-      {/* Loading */}
-      {loading && !data && <LoadingOverlay message="Loading webhook events…" />}
+      {/* Initial-load skeleton */}
+      {loading && !data && (
+        <TableSkeleton
+          rows={6}
+          columns={8}
+          columnWidths={['w-20', 'w-32', 'w-20', 'w-12', 'w-12', 'w-24', 'w-24', 'w-32']}
+          ariaLabel="Loading webhook events"
+        />
+      )}
 
       {/* Error */}
-      {error && <ErrorState message={error} onRetry={loadData} />}
+      {error && (
+        <ErrorState
+          title="Failed to load webhook events"
+          message="The admin proxy could not return the webhook delivery list."
+          suggestion="Check that the Statewave backend is reachable and try again."
+          technicalDetails={error}
+          onRetry={loadData}
+        />
+      )}
 
       {/* Empty - no data ever */}
       {!loading && !error && data?.events.length === 0 && !statusFilter && !eventTypeFilter && (
         <EmptyState
-          title="No webhook events found"
-          description="No webhook events recorded yet"
+          title="No webhook events yet"
+          description="Webhook delivery attempts will appear here after events are emitted."
         />
       )}
 
@@ -309,19 +332,19 @@ export function WebhooksPage() {
 
       {/* Events Table */}
       {data && data.events.length > 0 && (
-        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-hidden">
+        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-theme-border bg-[var(--theme-surface-1)]">
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">ID</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Event Type</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Status</th>
-                  <th className="text-center font-medium text-theme-muted px-4 py-2.5 text-xs">Attempts</th>
-                  <th className="text-center font-medium text-theme-muted px-4 py-2.5 text-xs">HTTP</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-2.5 text-xs">Next Retry</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-2.5 text-xs">Created</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Error</th>
+              <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
+                <tr>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">ID</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Event Type</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Status</th>
+                  <th className="text-center text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Attempts</th>
+                  <th className="text-center text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">HTTP</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Next Retry</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Created</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Error</th>
                 </tr>
               </thead>
               <tbody>
@@ -349,7 +372,7 @@ export function WebhooksPage() {
       {/* Summary */}
       {data && (
         <div className="mt-4 text-xs text-theme-muted text-right">
-          Showing {data.events.length} of {data.total} events · Auto-refreshes every 30s
+          Showing {data.events.length} of {data.total} events
         </div>
       )}
     </div>
