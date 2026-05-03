@@ -11,11 +11,15 @@ import { IconButton } from './IconButton'
  *   lg — multi-section content (Memory actions drawer, with tabs)
  *   xl — only for full-bleed inspectors that genuinely need it
  */
+// Each size is the *desktop* width; on phones the modal is a full-width
+// bottom sheet so width here is irrelevant under sm:. The sm:- prefix
+// is baked in so Tailwind's static analyzer sees real class names rather
+// than interpolated strings (which it doesn't expand).
 const SIZES = {
-  sm: 'max-w-md',
-  md: 'max-w-lg',
-  lg: 'max-w-2xl',
-  xl: 'max-w-4xl',
+  sm: 'sm:max-w-md',
+  md: 'sm:max-w-lg',
+  lg: 'sm:max-w-2xl',
+  xl: 'sm:max-w-4xl',
 } as const
 
 export type ModalSize = keyof typeof SIZES
@@ -83,13 +87,28 @@ export function Modal({
       // them, long monospace tokens such as visitor subject ids can render
       // with their tail wrapped to the right edge — which reads as RTL.
       dir="ltr"
-      className={`fixed inset-0 z-50 m-auto ${SIZES[size]} w-full text-left rounded-xl border border-theme-border bg-[var(--theme-card-bg)] shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm p-0`}
+      // Bottom-sheet on phones (<sm), centered card on tablet/desktop.
+      // The sheet lives at `inset-x-0 bottom-0` with a top rounded edge
+      // and `max-h-[92dvh]` so the body can scroll if its content is
+      // tall. Centered geometry kicks back in at sm:+ via the standard
+      // `m-auto` + size class, so existing modal call sites just work
+      // on every viewport without further changes.
+      className={`fixed z-50 text-left bg-[var(--theme-card-bg)] border border-theme-border shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm p-0
+        inset-x-0 bottom-0 mt-auto mb-0 mx-0 w-full max-w-full rounded-t-2xl rounded-b-none
+        sm:inset-0 sm:m-auto ${SIZES[size]} sm:w-full sm:rounded-xl sm:rounded-b-xl`}
       onClick={(e) => {
         // Close on backdrop click
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="flex flex-col max-h-[85vh]">
+      <div className="flex flex-col max-h-[92dvh] sm:max-h-[85vh] pb-[max(env(safe-area-inset-bottom),0px)]">
+        {/* iOS-style grabber affordance — a small horizontal pill at the
+            top of the sheet that signals "this is a sheet, you can
+            dismiss it by swiping down or tapping outside." Hidden on
+            sm+ where the modal is a centered card. */}
+        <div aria-hidden className="sm:hidden flex justify-center pt-2 pb-1">
+          <span className="block h-1 w-10 rounded-full bg-[var(--theme-surface-3)]" />
+        </div>
         {/* Header */}
         <div className="flex items-start justify-between px-5 py-4 border-b border-theme-border gap-4">
           <div className="min-w-0">

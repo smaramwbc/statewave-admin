@@ -24,9 +24,9 @@ import {
 } from '../lib/api'
 import { MemoryActionsDrawer } from '../components/MemoryActionsDrawer'
 import { SubjectRowActions } from '../components/SubjectRowActions'
-import { RefreshControl } from '../components/RefreshControl'
 import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { PullToRefresh } from '../components/PullToRefresh'
+import { RefreshControl } from '../components/RefreshControl'
 import { Button, PageHeader } from '../components/ui'
 import { Upload, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -36,15 +36,14 @@ const PAGE_SIZE = 50
 /**
  * Page-header action bar for SubjectsPage.
  *
- *   - md+ (≥768px): full inline toolbar — Updated timestamp + Refresh
+ *   - md+ (≥768px): inline toolbar — "Updated HH:MM:SS" + Refresh
  *     button + "Import / Restore…" + "Bulk delete…".
- *   - <md (phones): a single ⋮ kebab dropdown surfaces Import / Restore
- *     and Bulk delete. Refresh is omitted on phones because the page is
- *     wrapped in PullToRefresh; the in-flight state shows up as a small
- *     spinning icon inside RefreshControl on the timestamp.
+ *   - <md (phones): only the timestamp ("Updated HH:MM:SS") plus a ⋮
+ *     kebab with Import / Bulk delete. The Refresh button is hidden
+ *     because pull-to-refresh is the gesture there.
  *
  * The kebab pattern matches what each subject row already uses for
- * Clone / Export, so the gesture is consistent across the page.
+ * Clone / Export.
  */
 function SubjectsHeaderActions({
   lastFetched,
@@ -65,8 +64,6 @@ function SubjectsHeaderActions({
       icon: <Upload className="h-3.5 w-3.5" aria-hidden="true" />,
       onSelect: onOpenImport,
       title: 'Restore Statewave Support, import demo agents, or import a .swmem archive',
-      // Desktop renders the existing inline cluster in front of this
-      // item (RefreshControl + Import button). Mobile uses the kebab.
       desktop: (
         <div className="flex items-center gap-2">
           <RefreshControl lastFetched={lastFetched} onRefresh={onRefresh} loading={loading} />
@@ -102,7 +99,18 @@ function SubjectsHeaderActions({
     },
   ]
 
-  return <ActionMenu items={items} label="Subjects page actions" />
+  // On phones we render the timestamp inline next to the kebab so the
+  // "Updated HH:MM:SS" freshness signal stays visible on every page.
+  return (
+    <div className="flex items-center gap-2">
+      {lastFetched && (
+        <span className="md:hidden text-[11px] text-theme-muted tabular-nums">
+          {lastFetched.toLocaleTimeString()}
+        </span>
+      )}
+      <ActionMenu items={items} label="Subjects page actions" />
+    </div>
+  )
 }
 
 const healthOptions = [
@@ -352,70 +360,94 @@ export function SubjectsPage() {
               row-action menu still surfaces clone / delete / etc. */}
           <ul className="md:hidden space-y-3" aria-label="Subjects">
             {data.subjects.map((subject) => (
-              <li
-                key={subject.subject_id}
-                className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3"
-              >
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Link
-                        to={`/subjects/${encodeURIComponent(subject.subject_id)}`}
-                        className="text-theme-primary hover:text-accent font-mono text-xs truncate transition-colors"
+              // Whole card is a tappable navigation surface to the
+              // subject detail page — much easier to hit on a phone
+              // than a small text link on the subject id. The kebab
+              // menu, copy button, and any other interactive control
+              // inside still work because they each call
+              // `e.stopPropagation()` on their own click handlers, but
+              // we also wrap them in a `data-no-link` container that
+              // intercepts clicks before they reach the outer Link.
+              <li key={subject.subject_id} className="relative">
+                <Link
+                  to={`/subjects/${encodeURIComponent(subject.subject_id)}`}
+                  className="block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3 hover:border-accent/40 hover:bg-[var(--theme-surface-1)]/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none"
+                  aria-label={`Open subject ${subject.subject_id}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1 pr-16">
+                      {/* Subject id renders on a single line and scrolls
+                          horizontally on overflow — same pattern as
+                          SubjectDetail so the user can read the full
+                          tail without tapping in. The pr-16 right pad
+                          reserves space for the absolutely-positioned
+                          copy + kebab cluster in the top-right corner
+                          of the card, so the text never slides under it. */}
+                      <span
+                        className="block text-theme-primary font-mono text-xs whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
                         title={subject.subject_id}
                       >
                         {subject.subject_id}
-                      </Link>
-                      <CopyableMono
-                        value={subject.subject_id}
-                        labelForA11y="subject ID"
-                        className="shrink-0"
-                        display=""
-                      />
-                    </div>
-                    {subject.tenant_id && (
-                      <p className="mt-0.5 text-[10px] font-mono text-theme-muted truncate" title={subject.tenant_id}>
-                        tenant: {subject.tenant_id}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <HealthBadge state={subject.health_state} score={subject.health_score} />
-                    <SubjectRowActions
-                      subjectId={subject.subject_id}
-                      onCloneComplete={loadData}
-                    />
-                  </div>
-                </div>
-                <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
-                  <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
-                    <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
-                    <dd className="text-sm font-semibold text-theme-primary tabular-nums">
-                      {subject.memory_count.toLocaleString()}
-                    </dd>
-                  </div>
-                  <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
-                    <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Episodes</dt>
-                    <dd className="text-sm font-semibold text-theme-primary tabular-nums">
-                      {subject.episode_count.toLocaleString()}
-                    </dd>
-                  </div>
-                  <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
-                    <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Open</dt>
-                    <dd className="text-sm font-semibold tabular-nums">
-                      {subject.open_sessions > 0 ? (
-                        <Badge variant="warning">{subject.open_sessions}</Badge>
-                      ) : (
-                        <span className="text-theme-muted">—</span>
+                      </span>
+                      {subject.tenant_id && (
+                        <p
+                          className="mt-0.5 text-[10px] font-mono text-theme-muted whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+                          title={subject.tenant_id}
+                        >
+                          tenant: {subject.tenant_id}
+                        </p>
                       )}
-                    </dd>
+                    </div>
+                    <HealthBadge state={subject.health_state} score={subject.health_score} />
                   </div>
-                </dl>
-                {subject.last_episode_at && (
-                  <p className="mt-2 text-[10px] text-theme-muted">
-                    Last activity: {new Date(subject.last_episode_at).toLocaleString()}
-                  </p>
-                )}
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                      <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
+                      <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+                        {subject.memory_count.toLocaleString()}
+                      </dd>
+                    </div>
+                    <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                      <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Episodes</dt>
+                      <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+                        {subject.episode_count.toLocaleString()}
+                      </dd>
+                    </div>
+                    <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                      <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Open</dt>
+                      <dd className="text-sm font-semibold tabular-nums">
+                        {subject.open_sessions > 0 ? (
+                          <Badge variant="warning">{subject.open_sessions}</Badge>
+                        ) : (
+                          <span className="text-theme-muted">—</span>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                  {subject.last_episode_at && (
+                    <p className="mt-2 text-[10px] text-theme-muted">
+                      Last activity: {new Date(subject.last_episode_at).toLocaleString()}
+                    </p>
+                  )}
+                </Link>
+                {/* Inline action overlay — the copy + kebab live OUTSIDE
+                    the <Link> so their clicks don't bubble up to the
+                    card-level navigation. They sit absolutely positioned
+                    in the top-right corner of the card. */}
+                <div
+                  className="absolute top-2.5 right-2.5 flex items-center gap-1 z-10"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <CopyableMono
+                    value={subject.subject_id}
+                    labelForA11y="subject ID"
+                    display=""
+                  />
+                  <SubjectRowActions
+                    subjectId={subject.subject_id}
+                    onCloneComplete={loadData}
+                  />
+                </div>
               </li>
             ))}
           </ul>

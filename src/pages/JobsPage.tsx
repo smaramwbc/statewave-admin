@@ -178,48 +178,68 @@ function JobRow({ job }: { job: CompileJobListItem }) {
 function JobCard({ job }: { job: CompileJobListItem }) {
   const stuck = isStuck(job)
   const [errorExpanded, setErrorExpanded] = useState(false)
+  // The whole card navigates to the subject detail (the most natural
+  // "drill in" destination from a job). The error toggle and the copy
+  // button sit on top of the card with their own click handlers and
+  // stopPropagation so they don't fire the navigation.
   return (
-    <li className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <CopyableMono value={job.job_id} labelForA11y="job ID" maxWidthClass="max-w-full" />
-          <div className="mt-1 flex items-center gap-1.5 min-w-0">
-            <span className="text-[10px] uppercase tracking-wider text-theme-muted shrink-0">subject</span>
-            <Link
-              to={`/subjects/${encodeURIComponent(job.subject_id)}`}
-              className="text-xs font-mono text-accent hover:text-accent-light hover:underline underline-offset-2 truncate"
-              title={job.subject_id}
-            >
-              {job.subject_id}
-            </Link>
+    <li className="relative">
+      <Link
+        to={`/subjects/${encodeURIComponent(job.subject_id)}`}
+        className="block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3 hover:border-accent/40 hover:bg-[var(--theme-surface-1)]/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none"
+        aria-label={`Open subject ${job.subject_id}`}
+      >
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-xs text-theme-primary truncate" title={job.job_id}>
+              {job.job_id}
+            </p>
+            <div className="mt-1 flex items-center gap-1.5 min-w-0">
+              <span className="text-[10px] uppercase tracking-wider text-theme-muted shrink-0">subject</span>
+              <span className="text-xs font-mono text-accent truncate" title={job.subject_id}>
+                {job.subject_id}
+              </span>
+            </div>
           </div>
+          <StatusBadge status={job.status} stuck={stuck} />
         </div>
-        <StatusBadge status={job.status} stuck={stuck} />
+        <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+            <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
+            <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+              {job.memories_created > 0 ? job.memories_created : '—'}
+            </dd>
+          </div>
+          <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+            <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Duration</dt>
+            <dd className={`text-sm font-semibold tabular-nums ${stuck ? 'text-amber-400' : 'text-theme-primary'}`}>
+              {formatDuration(job.started_at, job.completed_at)}
+            </dd>
+          </div>
+          <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+            <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Created</dt>
+            <dd className="text-xs font-medium text-theme-secondary">
+              {formatRelativeTime(job.created_at)}
+            </dd>
+          </div>
+        </dl>
+      </Link>
+      {/* Out-of-link controls. Copy on the job id (top-right) and the
+          error toggle (bottom). Both live outside the Link so the card
+          navigation isn't accidentally fired by their clicks. */}
+      <div
+        className="absolute top-2.5 right-2.5 z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <CopyableMono value={job.job_id} labelForA11y="job ID" display="" />
       </div>
-      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
-          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
-          <dd className="text-sm font-semibold text-theme-primary tabular-nums">
-            {job.memories_created > 0 ? job.memories_created : '—'}
-          </dd>
-        </div>
-        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
-          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Duration</dt>
-          <dd className={`text-sm font-semibold tabular-nums ${stuck ? 'text-amber-400' : 'text-theme-primary'}`}>
-            {formatDuration(job.started_at, job.completed_at)}
-          </dd>
-        </div>
-        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
-          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Created</dt>
-          <dd className="text-xs font-medium text-theme-secondary">
-            {formatRelativeTime(job.created_at)}
-          </dd>
-        </div>
-      </dl>
       {job.error && (
         <button
-          onClick={() => setErrorExpanded((v) => !v)}
-          className="mt-2 w-full text-left text-[11px] text-red-400 hover:text-red-300 break-anywhere"
+          onClick={(e) => {
+            e.stopPropagation()
+            setErrorExpanded((v) => !v)
+          }}
+          className="block w-full text-left text-[11px] text-red-400 hover:text-red-300 break-anywhere px-3 pb-3 -mt-1"
           aria-expanded={errorExpanded}
         >
           {errorExpanded ? job.error : `${job.error.slice(0, 80)}${job.error.length > 80 ? '…' : ''}`}

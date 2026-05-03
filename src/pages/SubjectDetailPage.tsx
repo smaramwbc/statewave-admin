@@ -231,8 +231,16 @@ export function SubjectDetailPage() {
         </Link>
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
           <div className="flex items-center gap-2 min-w-0 flex-1">
+            {/* Subject id is on a single line and horizontally scrollable
+                instead of being clipped with an ellipsis — long ids
+                (e.g. demo_web_<32hex>__statewave-support) are unique
+                enough that the suffix matters, so swiping sideways is
+                more useful than a "…" plus a hover tooltip the user
+                can't easily activate on touch. The native scrollbar is
+                hidden because the text + adjacent copy button are the
+                affordance. */}
             <h1
-              className="text-base sm:text-lg font-semibold text-theme-primary font-mono truncate"
+              className="text-base sm:text-lg font-semibold text-theme-primary font-mono min-w-0 flex-1 whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
               title={detail.subject_id}
             >
               {detail.subject_id}

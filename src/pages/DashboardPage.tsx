@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { StatusDot, StatusChip } from '../components/StatusChip'
 import { StatCard } from '../components/StatCard'
-import { RefreshControl } from '../components/RefreshControl'
 import {
   ErrorState,
   Modal,
@@ -13,6 +12,7 @@ import {
   Skeleton,
 } from '../components/ui'
 import { PullToRefresh } from '../components/PullToRefresh'
+import { RefreshControl } from '../components/RefreshControl'
 import { fetchDashboard, fetchUsage, type DashboardData, type UsageData, type UsageWindow } from '../lib/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
