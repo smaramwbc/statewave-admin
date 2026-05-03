@@ -28,8 +28,7 @@ import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { RefreshControl } from '../components/RefreshControl'
 import { Button, PageHeader } from '../components/ui'
-import { Upload, Trash2, RefreshCw } from 'lucide-react'
-import { IconButton } from '../components/ui'
+import { Upload, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
@@ -66,18 +65,15 @@ function SubjectsHeaderActions({
       onSelect: onOpenImport,
       title: 'Restore Statewave Support, import demo agents, or import a .swmem archive',
       desktop: (
-        <div className="flex items-center gap-2">
-          <RefreshControl lastFetched={lastFetched} onRefresh={onRefresh} loading={loading} />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onOpenImport}
-            leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
-            title="Restore Statewave Support, import demo agents, or import a .swmem archive"
-          >
-            Import / Restore…
-          </Button>
-        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onOpenImport}
+          leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
+          title="Restore Statewave Support, import demo agents, or import a .swmem archive"
+        >
+          Import / Restore…
+        </Button>
       ),
     },
     {
@@ -100,28 +96,14 @@ function SubjectsHeaderActions({
     },
   ]
 
-  // On phones we render the timestamp + an explicit refresh icon next
-  // to the kebab. Pull-to-refresh is still the primary gesture, but a
-  // tappable icon is useful for one-handed use and for visitors who
-  // haven't discovered the swipe affordance yet. The icon spins while
-  // a refetch is in flight so the visitor gets immediate feedback.
+  // Mobile mirrors the other pages (Overview, Jobs, Webhooks): the
+  // RefreshControl renders just its "Updated HH:MM:SS" timestamp on
+  // phones (the Refresh button is hidden by RefreshControl itself
+  // under md:). The kebab carries Import / Bulk delete; pull-to-
+  // refresh handles refresh.
   return (
-    <div className="flex items-center gap-1.5 sm:gap-2">
-      {lastFetched && (
-        <span className="md:hidden text-[11px] text-theme-muted tabular-nums">
-          {lastFetched.toLocaleTimeString()}
-        </span>
-      )}
-      <IconButton
-        aria-label="Refresh subjects"
-        title="Refresh"
-        icon={<RefreshCw className={loading ? 'animate-spin' : undefined} />}
-        variant="ghost"
-        size="sm"
-        onClick={onRefresh}
-        disabled={loading}
-        className="md:hidden"
-      />
+    <div className="flex items-center gap-2">
+      <RefreshControl lastFetched={lastFetched} onRefresh={onRefresh} loading={loading} />
       <ActionMenu items={items} label="Subjects page actions" />
     </div>
   )
@@ -388,16 +370,15 @@ export function SubjectsPage() {
                   className="block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3 hover:border-accent/40 hover:bg-[var(--theme-surface-1)]/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none"
                   aria-label={`Open subject ${subject.subject_id}`}
                 >
-                  <div className="min-w-0 pr-20">
+                  <div className="min-w-0 pr-12">
                     {/* Subject id renders on a single line and scrolls
-                        horizontally on overflow — same pattern as
-                        SubjectDetail so the user can read the full
-                        tail without tapping in. The pr-20 right pad
+                        horizontally on overflow. The pr-12 right pad
                         reserves space for the absolutely-positioned
-                        health badge + copy + kebab cluster in the top-
-                        right corner of the card, so the text never
-                        slides under them and the badge never collides
-                        with the kebab on a 320px screen. */}
+                        copy + kebab cluster in the top-right corner of
+                        the card. The HealthBadge no longer lives at
+                        the top — it pairs with "Last activity" at the
+                        bottom-right instead, so the chip and the
+                        kebab never compete for the same corner. */}
                     <span
                       className="block text-theme-primary font-mono text-xs whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
                       title={subject.subject_id}
@@ -437,25 +418,25 @@ export function SubjectsPage() {
                       </dd>
                     </div>
                   </dl>
-                  {subject.last_episode_at && (
-                    <p className="mt-2 text-[10px] text-theme-muted">
-                      Last activity: {new Date(subject.last_episode_at).toLocaleString()}
-                    </p>
-                  )}
+                  {/* Footer row — last activity left, health chip right. */}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    {subject.last_episode_at ? (
+                      <p className="text-[10px] text-theme-muted truncate">
+                        Last activity: {new Date(subject.last_episode_at).toLocaleString()}
+                      </p>
+                    ) : (
+                      <span />
+                    )}
+                    <HealthBadge state={subject.health_state} score={subject.health_score} />
+                  </div>
                 </Link>
-                {/* Top-right cluster — health badge + copy + kebab. All
-                    of this lives OUTSIDE the wrapping <Link> so clicks
-                    on the kebab and copy buttons don't bubble up to the
-                    card-level navigation. Co-locating the badge here
-                    fixes the visual collision where the green
-                    "healthy (100)" chip used to overlap the kebab on
-                    320px screens — the cluster now sits as a single
-                    column in the top-right corner. */}
+                {/* Top-right cluster — copy + kebab only. The health
+                    badge moved down to the footer row so the chip and
+                    kebab never share the same corner pixels. */}
                 <div
-                  className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10"
+                  className="absolute top-2.5 right-2.5 flex items-center gap-1 z-10"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <HealthBadge state={subject.health_state} score={subject.health_score} />
                   <CopyableMono
                     value={subject.subject_id}
                     labelForA11y="subject ID"
