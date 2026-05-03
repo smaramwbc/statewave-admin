@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { ThemeProvider } from './lib/theme'
 import { AuthProvider } from './lib/auth'
 import { AuthGate } from './components/AuthGate'
@@ -17,6 +18,18 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <AuthGate>
+            {/* Single Toaster anchored at the app root. Sonner picks up
+                light/dark from system; we let the operator OS preference
+                decide rather than force a theme. */}
+            <Toaster
+              position="bottom-right"
+              richColors
+              closeButton
+              toastOptions={{
+                className: 'font-sans',
+                duration: 4000,
+              }}
+            />
             <BrowserRouter>
               <Routes>
                 <Route element={<Shell />}>

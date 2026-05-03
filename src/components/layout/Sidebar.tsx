@@ -1,11 +1,19 @@
 import { NavLink } from 'react-router-dom'
+import { LayoutDashboard, Database, Cog, Webhook } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useTheme } from '../../lib/theme'
 
-const navItems = [
-  { to: '/', label: 'Overview', icon: '◉' },
-  { to: '/subjects', label: 'Subjects', icon: '◎' },
-  { to: '/jobs', label: 'Jobs', icon: '⚙' },
-  { to: '/webhooks', label: 'Webhooks', icon: '↗' },
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+}
+
+const navItems: NavItem[] = [
+  { to: '/', label: 'Overview', icon: LayoutDashboard },
+  { to: '/subjects', label: 'Subjects', icon: Database },
+  { to: '/jobs', label: 'Jobs', icon: Cog },
+  { to: '/webhooks', label: 'Webhooks', icon: Webhook },
 ]
 
 export function Sidebar() {
@@ -29,24 +37,27 @@ export function Sidebar() {
       {/* Navigation */}
       <nav aria-label="Main navigation" className="flex-1 py-3 px-2">
         <ul className="space-y-0.5">
-          {navItems.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                end={item.to === '/'}
-                className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isActive
-                      ? 'bg-[var(--theme-surface-2)] text-theme-primary font-medium'
-                      : 'text-theme-secondary hover:bg-[var(--theme-surface-1)] hover:text-theme-primary'
-                  }`
-                }
-              >
-                <span className="text-xs opacity-70">{item.icon}</span>
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
+          {navItems.map((item) => {
+            const Icon = item.icon
+            return (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.to === '/'}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      isActive
+                        ? 'bg-[var(--theme-surface-2)] text-theme-primary font-medium'
+                        : 'text-theme-secondary hover:bg-[var(--theme-surface-1)] hover:text-theme-primary'
+                    }`
+                  }
+                >
+                  <Icon className="h-4 w-4 opacity-70 shrink-0" aria-hidden="true" />
+                  {item.label}
+                </NavLink>
+              </li>
+            )
+          })}
         </ul>
       </nav>
 

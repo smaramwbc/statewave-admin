@@ -131,7 +131,9 @@ describe('WebhooksPage', () => {
   it('renders loading state initially', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
     renderWebhooksPage()
-    expect(screen.getByText(/Loading webhook events/i)).toBeInTheDocument()
+    // Initial load uses a TableSkeleton (animate-pulse blocks) instead of
+    // the previous full-page LoadingOverlay copy.
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
   it('renders event list after fetch', async () => {
@@ -202,7 +204,8 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('No webhook events found')).toBeInTheDocument()
+      // Premium copy: "No webhook events yet" + helper sentence.
+      expect(screen.getByText('No webhook events yet')).toBeInTheDocument()
     })
   })
 
@@ -211,7 +214,8 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+      // Structured ErrorState leads with the page-specific title.
+      expect(screen.getByText('Failed to load webhook events')).toBeInTheDocument()
     })
   })
 
@@ -254,8 +258,9 @@ describe('WebhooksPage', () => {
     // Initial fetch
     expect(fetchSpy).toHaveBeenCalledTimes(1)
 
-    // Click refresh
-    fireEvent.click(screen.getByText('Refresh'))
+    // Click refresh — pin by accessible name so we don't match the button
+    // label and the title attribute simultaneously.
+    fireEvent.click(screen.getByRole('button', { name: /refresh page data/i }))
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(2)

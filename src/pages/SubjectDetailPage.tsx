@@ -1,6 +1,24 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { Tabs, TabPanel, LoadingOverlay, LoadingState, ErrorState, Badge, HealthBadge, EmptyState, NoResultsState, Pagination, Modal } from '../components/ui'
+import { AlertTriangle, Trash2, X } from 'lucide-react'
+import { toast } from 'sonner'
+import {
+  Tabs,
+  TabPanel,
+  LoadingState,
+  ErrorState,
+  Badge,
+  HealthBadge,
+  EmptyState,
+  NoResultsState,
+  Pagination,
+  Modal,
+  Button,
+  Skeleton,
+  CopyableMono,
+  FilterChip,
+  IconButton,
+} from '../components/ui'
 import { EpisodeDetailModal } from '../components/EpisodeDetailModal'
 import { MemoryDetailModal } from '../components/MemoryDetailModal'
 import { SourceEpisodesModal } from '../components/SourceEpisodesModal'
@@ -142,9 +160,26 @@ export function SubjectDetailPage() {
   }, [loadDetail])
 
   if (loading && !detail) {
+    // Initial-load skeleton — matches the eventual header (back link,
+    // title, badges, delete button) + tabs row + an overview area so the
+    // page doesn't blank out and re-shape when the data arrives.
     return (
-      <div className="p-6 max-w-7xl mx-auto">
-        <LoadingOverlay message="Loading subject…" />
+      <div className="p-6 max-w-7xl mx-auto" aria-busy="true">
+        <div className="mb-6">
+          <Skeleton className="h-3 w-24 mb-2" />
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-5 w-72" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+            <div className="ml-auto" />
+            <Skeleton className="h-7 w-28" />
+          </div>
+          <Skeleton className="h-3 w-64 mt-2" />
+        </div>
+        <Skeleton className="h-9 w-full mb-4 rounded-lg" />
+        <div className="space-y-3">
+          <Skeleton className="h-32 w-full rounded-xl" />
+          <Skeleton className="h-32 w-full rounded-xl" />
+        </div>
       </div>
     )
   }
@@ -152,7 +187,13 @@ export function SubjectDetailPage() {
   if (error) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
-        <ErrorState message={error} onRetry={loadDetail} />
+        <ErrorState
+          title="Failed to load subject"
+          message="The admin proxy could not load this subject's overview, memories, episodes, or sessions."
+          suggestion="Check that the subject id is correct and that the Statewave backend is reachable."
+          technicalDetails={error}
+          onRetry={loadDetail}
+        />
       </div>
     )
   }
@@ -177,19 +218,33 @@ export function SubjectDetailPage() {
           ← Back to Subjects
         </Link>
         <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold text-theme-primary font-mono">{detail.subject_id}</h1>
+          <h1
+            className="text-lg font-semibold text-theme-primary font-mono break-all"
+            title={detail.subject_id}
+          >
+            {detail.subject_id}
+          </h1>
+          <CopyableMono
+            value={detail.subject_id}
+            labelForA11y="subject ID"
+            display=""
+            className="shrink-0"
+          />
           <HealthBadge state={detail.health?.state ?? null} score={detail.health?.score} />
-          <button
+          <Button
+            variant="destructive"
+            size="sm"
             onClick={() => {
               setDeleteConfirmInput('')
               setDeleteError(null)
               setShowDeleteModal(true)
             }}
-            className="ml-auto text-xs px-3 py-1.5 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors"
+            leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+            className="ml-auto"
             title="Permanently delete all episodes and memories for this subject"
           >
             Delete subject
-          </button>
+          </Button>
         </div>
         <p className="text-sm text-theme-muted mt-1">
           {detail.tenant_id && (
@@ -287,14 +342,19 @@ export function SubjectDetailPage() {
             <p className="text-xs text-red-400">{deleteError}</p>
           )}
           <div className="flex justify-end gap-2 pt-2">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => { if (!deleting) setShowDeleteModal(false) }}
               disabled={deleting}
-              className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-secondary hover:bg-theme-surface-1 disabled:opacity-60"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              loading={deleting}
+              disabled={deleteConfirmInput !== detail.subject_id}
               onClick={async () => {
                 if (deleteConfirmInput !== detail.subject_id) return
                 setDeleting(true)
@@ -302,18 +362,21 @@ export function SubjectDetailPage() {
                 try {
                   await deleteSubject(detail.subject_id, detail.tenant_id ?? undefined)
                   setShowDeleteModal(false)
+                  toast.success('Subject deleted', {
+                    description: detail.subject_id,
+                  })
                   navigate('/subjects')
                 } catch (err) {
-                  setDeleteError(err instanceof Error ? err.message : 'Delete failed')
+                  const msg = err instanceof Error ? err.message : 'Delete failed'
+                  setDeleteError(msg)
+                  toast.error('Delete failed', { description: msg })
                 } finally {
                   setDeleting(false)
                 }
               }}
-              disabled={deleting || deleteConfirmInput !== detail.subject_id}
-              className="px-3 py-1.5 text-xs rounded bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {deleting ? 'Deleting…' : 'Delete permanently'}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
@@ -494,7 +557,15 @@ function MemoriesTab({
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   if (error) {
-    return <ErrorState message={error} onRetry={loadMemories} />
+    return (
+      <ErrorState
+        title="Failed to load memories"
+        message="The admin proxy could not return this subject's memory list."
+        suggestion="Try refreshing. If the failure persists, check the backend logs."
+        technicalDetails={error}
+        onRetry={loadMemories}
+      />
+    )
   }
 
   // Initial loading (no data yet)
@@ -503,7 +574,12 @@ function MemoriesTab({
   }
 
   if (!loading && memories.length === 0 && !debouncedSearch) {
-    return <EmptyState title="No memories" description="No memories have been compiled for this subject yet" />
+    return (
+      <EmptyState
+        title="No memories compiled yet"
+        description="Add episodes and run compile to generate memories for this subject."
+      />
+    )
   }
 
   return (
@@ -517,7 +593,7 @@ function MemoriesTab({
             placeholder="Search memories…"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full px-3 py-1.5 pl-8 text-sm rounded-md border border-theme-border bg-[var(--theme-input-bg)] text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent"
+            className="w-full px-3 py-1.5 pl-8 text-sm rounded-lg border border-theme-border bg-[var(--theme-input-bg)] text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent"
           />
           <svg
             className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-theme-muted"
@@ -528,30 +604,32 @@ function MemoriesTab({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           {searchQuery && (
-            <button
+            <IconButton
+              aria-label="Clear search"
+              icon={<X />}
+              variant="ghost"
+              size="sm"
               onClick={() => onSearchChange('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-secondary"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
+            />
           )}
         </div>
-        {/* Status filter */}
-        <div className="flex gap-2">
+        {/* Status filter — pill toggles via the shared FilterChip primitive
+            so all chip groups across the app stay visually identical and
+            announce their pressed state consistently to assistive tech. */}
+        <div
+          className="flex gap-2"
+          role="group"
+          aria-label="Filter by memory status"
+        >
           {(['all', 'active', 'superseded'] as const).map((status) => (
-            <button
+            <FilterChip
               key={status}
+              selected={statusFilter === status}
               onClick={() => onStatusFilterChange(status)}
-              className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
-                statusFilter === status
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-theme-border text-theme-muted hover:text-theme-secondary'
-              }`}
             >
               {status.charAt(0).toUpperCase() + status.slice(1)}
-            </button>
+            </FilterChip>
           ))}
         </div>
       </div>
@@ -751,7 +829,15 @@ function EpisodesTab({
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   if (error) {
-    return <ErrorState message={error} onRetry={loadEpisodes} />
+    return (
+      <ErrorState
+        title="Failed to load episodes"
+        message="The admin proxy could not return this subject's episode list."
+        suggestion="Try refreshing. If the failure persists, check the backend logs."
+        technicalDetails={error}
+        onRetry={loadEpisodes}
+      />
+    )
   }
 
   // Initial loading (no data yet)
@@ -760,7 +846,12 @@ function EpisodesTab({
   }
 
   if (!loading && episodes.length === 0 && !debouncedSearch && !sessionFilter) {
-    return <EmptyState title="No episodes" description="No episodes have been recorded for this subject yet" />
+    return (
+      <EmptyState
+        title="No episodes yet"
+        description="Episodes appear as soon as the SDK ingests events for this subject."
+      />
+    )
   }
 
   // Helper to clear all filters
@@ -791,7 +882,7 @@ function EpisodesTab({
             placeholder="Search episodes…"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full px-3 py-1.5 pl-8 text-sm rounded-md border border-theme-border bg-[var(--theme-input-bg)] text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent"
+            className="w-full px-3 py-1.5 pl-8 text-sm rounded-lg border border-theme-border bg-[var(--theme-input-bg)] text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent"
           />
           <svg
             className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-theme-muted"
@@ -802,14 +893,14 @@ function EpisodesTab({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           {searchQuery && (
-            <button
+            <IconButton
+              aria-label="Clear search"
+              icon={<X />}
+              variant="ghost"
+              size="sm"
               onClick={() => onSearchChange('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-secondary"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
+            />
           )}
         </div>
         {debouncedSearch && (
@@ -984,7 +1075,15 @@ function SessionsTab({ subjectId, tenantId, onViewEpisodesForSession }: Sessions
   }, [loadSessions])
 
   if (error) {
-    return <ErrorState message={error} onRetry={loadSessions} />
+    return (
+      <ErrorState
+        title="Failed to load sessions"
+        message="The admin proxy could not return this subject's session list."
+        suggestion="Try refreshing. If the failure persists, check the backend logs."
+        technicalDetails={error}
+        onRetry={loadSessions}
+      />
+    )
   }
 
   // Initial loading
@@ -993,7 +1092,12 @@ function SessionsTab({ subjectId, tenantId, onViewEpisodesForSession }: Sessions
   }
 
   if (!loading && sessions.length === 0) {
-    return <EmptyState title="No sessions" description="No tracked sessions for this subject" />
+    return (
+      <EmptyState
+        title="No sessions yet"
+        description="Sessions appear when conversations group multiple episodes together for this subject."
+      />
+    )
   }
 
   return (
@@ -1063,7 +1167,7 @@ function SessionsTab({ subjectId, tenantId, onViewEpisodesForSession }: Sessions
                   {session.first_response_seconds != null
                     ? formatDuration(session.first_response_seconds)
                     : '—'}
-                  {session.first_response_breached && ' ⚠'}
+                  {session.first_response_breached && <AlertTriangle className='inline h-3 w-3 ml-1' aria-label='SLA breached' />}
                 </p>
               </div>
               <div>
@@ -1074,7 +1178,7 @@ function SessionsTab({ subjectId, tenantId, onViewEpisodesForSession }: Sessions
                     : session.open_duration_seconds != null
                       ? `${formatDuration(session.open_duration_seconds)} (open)`
                       : '—'}
-                  {session.resolution_breached && ' ⚠'}
+                  {session.resolution_breached && <AlertTriangle className='inline h-3 w-3 ml-1' aria-label='SLA breached' />}
                 </p>
               </div>
               {session.first_response_at && (

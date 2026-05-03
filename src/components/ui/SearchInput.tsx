@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { Search, X } from 'lucide-react'
+import { IconButton } from './IconButton'
 
 interface SearchInputProps {
   value: string
@@ -37,24 +39,30 @@ export function SearchInput({
 
   return (
     <div className="relative">
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted text-sm">🔍</span>
+      <Search
+        className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-theme-muted pointer-events-none"
+        aria-hidden="true"
+      />
       <input
         type="text"
         value={localValue}
         onChange={handleChange}
         placeholder={placeholder}
-        className="w-full pl-9 pr-3 py-2 text-sm bg-[var(--theme-surface-1)] border border-theme-border rounded-lg text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/50"
+        className="w-full pl-9 pr-9 py-2 text-sm bg-[var(--theme-surface-1)] border border-theme-border rounded-lg text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/50"
       />
       {localValue && (
-        <button
+        <IconButton
+          aria-label="Clear search"
+          icon={<X />}
+          variant="ghost"
+          size="sm"
           onClick={() => {
             setLocalValue('')
             onChange('')
           }}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-secondary text-xs"
-        >
-          ✕
-        </button>
+          // Float over the input on the right edge.
+          className="absolute right-1.5 top-1/2 -translate-y-1/2"
+        />
       )}
     </div>
   )

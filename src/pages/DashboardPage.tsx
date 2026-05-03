@@ -2,18 +2,21 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { StatusDot, StatusChip } from '../components/StatusChip'
 import { StatCard } from '../components/StatCard'
-import { LoadingOverlay, ErrorState, Modal } from '../components/ui'
+import { RefreshControl } from '../components/RefreshControl'
+import {
+  ErrorState,
+  Modal,
+  PageHeader,
+  SectionLabel,
+  CardSkeleton,
+  StatSkeleton,
+  Skeleton,
+} from '../components/ui'
 import { fetchDashboard, fetchUsage, type DashboardData, type UsageData, type UsageWindow } from '../lib/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type CheckDetail = { name: string; status: string; detail: string; latency_ms: number }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-sm font-semibold text-theme-primary uppercase tracking-wide mb-3">{children}</h2>
-}
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
@@ -28,24 +31,22 @@ export function DashboardPage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      console.info('[statewave-admin] Fetching dashboard data…')
       const [dashData, usageData] = await Promise.all([
         fetchDashboard(),
         fetchUsage().catch(() => null),
       ])
       setData(dashData)
       setUsage(usageData)
-      console.info('[statewave-admin] Dashboard loaded:', {
-        subjects: dashData.counts?.subjects,
-        episodes: dashData.counts?.episodes,
-        memories: dashData.counts?.memories,
-      })
       setError(null)
       setLastFetched(new Date())
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : 'Failed to fetch'
-      console.info('[statewave-admin] Fetch failed:', errMsg)
       setError(errMsg)
+      // Surface in dev only — production keeps the console quiet so real
+      // errors aren't lost in dashboard-tick chatter.
+      if (import.meta.env.DEV) {
+        console.warn('[statewave-admin] Dashboard fetch failed:', errMsg)
+      }
     } finally {
       setLoading(false)
     }
@@ -61,41 +62,67 @@ export function DashboardPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-lg font-semibold text-theme-primary">Overview</h1>
-          <p className="text-sm text-theme-muted mt-0.5">System health and usage summary</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastFetched && (
-            <span className="text-xs text-theme-muted tabular-nums">
-              Updated {lastFetched.toLocaleTimeString()}
-            </span>
-          )}
-          <button
-            onClick={fetchData}
-            className="px-3 py-1.5 text-xs text-theme-muted hover:text-theme-primary border border-theme-border rounded-lg transition-colors"
-            title="Refresh"
-          >
-            ↻ Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Overview"
+        description="System health and usage summary"
+        actions={
+          <RefreshControl
+            lastFetched={lastFetched}
+            onRefresh={fetchData}
+            loading={loading}
+          />
+        }
+      />
 
       {error && !data && (
-        <ErrorState 
-          title="Failed to load dashboard" 
-          message={error} 
-          onRetry={fetchData} 
+        <ErrorState
+          title="Failed to load dashboard"
+          message="The admin proxy could not aggregate readiness, schema, jobs, and webhooks for this view."
+          suggestion="Check that the Statewave backend is reachable and the API key has admin scope, then try again."
+          technicalDetails={error}
+          onRetry={fetchData}
         />
+      )}
+
+      {/* Initial-load skeletons. We render shapes that mirror the eventual
+          layout (3 status cards · 3 stat cards) so the data swap doesn't
+          shift the page. Background refreshes keep the prior `data` and
+          rely on RefreshControl's loading state instead. */}
+      {loading && !data && !error && (
+        <div className="space-y-8" aria-busy="true">
+          <section>
+            <SectionLabel>System Status</SectionLabel>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <CardSkeleton lines={3} />
+              <CardSkeleton lines={2} />
+              <CardSkeleton lines={3} />
+            </div>
+          </section>
+          <section>
+            <SectionLabel>Data</SectionLabel>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+            </div>
+          </section>
+          <section>
+            <SectionLabel>Usage (rolling)</SectionLabel>
+            <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5 space-y-2">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+              <Skeleton className="h-3 w-4/6" />
+            </div>
+          </section>
+        </div>
       )}
 
       {data && (
         <div className="space-y-8">
           {/* System Status */}
           <section>
-            <SectionTitle>System Status</SectionTitle>
+            <SectionLabel>System Status</SectionLabel>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Readiness */}
               <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
@@ -200,7 +227,7 @@ export function DashboardPage() {
 
             {/* Data Counts */}
             <section>
-              <SectionTitle>Data</SectionTitle>
+              <SectionLabel>Data</SectionLabel>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <StatCard label="Subjects" value={data.counts.subjects} to="/subjects" />
                 <StatCard label="Episodes" value={data.counts.episodes} />
@@ -211,7 +238,7 @@ export function DashboardPage() {
             {/* Usage Metering */}
             {usage && (
               <section>
-                <SectionTitle>Usage (rolling)</SectionTitle>
+                <SectionLabel>Usage (rolling)</SectionLabel>
                 <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
@@ -250,7 +277,7 @@ export function DashboardPage() {
 
             {/* Webhooks */}
             <section>
-              <SectionTitle>Webhooks</SectionTitle>
+              <SectionLabel>Webhooks</SectionLabel>
               <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
                 {data.webhooks.total === 0 ? (
                   <p className="text-xs text-theme-muted">No webhook events recorded</p>
@@ -296,8 +323,9 @@ export function DashboardPage() {
           </div>
         )}
 
-      {/* Loading overlay for initial load and refetch */}
-      {loading && <LoadingOverlay message={data ? "Refreshing dashboard…" : "Loading dashboard…"} />}
+      {/* No blocking overlay during background refresh — the existing data
+          stays visible and RefreshControl's spinner conveys "refreshing".
+          The initial-load skeleton handles the no-data case above. */}
 
       {/* Error detail modal */}
       <Modal

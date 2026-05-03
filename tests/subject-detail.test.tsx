@@ -58,7 +58,9 @@ describe('SubjectDetailPage', () => {
   it('renders loading state initially', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
     renderWithRouter('user_123')
-    expect(screen.getByText(/Loading subject/i)).toBeInTheDocument()
+    // Initial load uses skeleton placeholders (animate-pulse blocks)
+    // matching the eventual page shape rather than a LoadingOverlay.
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
   it('renders subject detail after fetch', async () => {
@@ -95,7 +97,8 @@ describe('SubjectDetailPage', () => {
     renderWithRouter('nonexistent')
 
     await waitFor(() => {
-      expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+      // Structured ErrorState leads with the page-specific title.
+      expect(screen.getByText('Failed to load subject')).toBeInTheDocument()
     })
   })
 

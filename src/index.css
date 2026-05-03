@@ -79,3 +79,31 @@ body {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* Cursor affordance.
+ *
+ * Tailwind's preflight + Chrome 97+ removed the implicit `cursor: pointer`
+ * from `<button>` (matching the spec). The result felt off in this app —
+ * every clickable button was rendering with the default arrow cursor. We
+ * restore pointer here for every truly-interactive element so the affordance
+ * is consistent with what users expect from a control surface, then
+ * explicitly mark disabled controls with `not-allowed`. Anchor tags get
+ * pointer too even though the user-agent default already provides it, so
+ * theme overrides can't accidentally suppress it. */
+button,
+[role="button"],
+[role="menuitem"],
+summary,
+label[for] {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+button[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+a {
+  cursor: pointer;
+}

@@ -268,8 +268,10 @@ describe('SessionTimelinePage', () => {
       expect(screen.getByText('Sessions')).toBeInTheDocument()
     })
 
-    // Find copy button by title
-    const copyIdButton = screen.getByTitle('Copy session ID')
+    // Session-id copy is now owned by CopyableMono, which exposes the
+    // accessible name "Copy session ID" instead of the previous title
+    // attribute. Both label paths are equivalent for screen readers.
+    const copyIdButton = screen.getByRole('button', { name: 'Copy session ID' })
     expect(copyIdButton).toBeInTheDocument()
   })
 

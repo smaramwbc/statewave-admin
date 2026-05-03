@@ -531,6 +531,10 @@ export interface BulkDeleteFilter {
   subject_id_prefix?: string
   older_than_days?: number
   tenant_id?: string
+  /** Explicit "match every subject" opt-in. Required by the backend when
+   *  no other selector is set. The UI gates this behind a type-to-confirm
+   *  phrase so it cannot be triggered accidentally. */
+  match_all?: boolean
 }
 
 export interface BulkDeleteSample {
@@ -599,6 +603,196 @@ export async function commitBulkDelete(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...filter, expected_count: expectedCount, confirm: true }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+
+// ─── Memory portability (vendor-neutral) ─────────────────────────────────────
+//
+// Six admin endpoints, all under /admin/memory/*. Both export and import
+// transmit plaintext JSON over the authenticated /api/proxy session — the
+// admin client encrypts/decrypts the .swmem container locally so the
+// passphrase never touches the server. See lib/swmem.ts for the crypto.
+
+export type StarterPackKind = 'support_docs' | 'demo_agent'
+export type ConflictStrategy = 'create_copy' | 'merge' | 'cancel'
+export type MemoryScope =
+  | 'episodes'
+  | 'memories'
+  | 'episodes_and_memories'
+  | 'episodes_memories_sources'
+
+export interface StarterPack {
+  pack_id: string
+  kind: StarterPackKind | null
+  display_name: string
+  description: string
+  version: string
+  created_at: string
+  subject_id_suggestion: string
+  episode_count: number
+  memory_count: number
+  source_count: number
+  tags: string[]
+}
+
+export interface StarterPackImportResult {
+  pack_id: string
+  target_subject_id: string
+  imported_episodes: number
+  imported_memories: number
+  imported_sources: number
+  conflict_strategy: ConflictStrategy
+  imported_at: string
+}
+
+export interface SupportReseedResult {
+  subject_id: string
+  pack_id: string
+  pack_version: string
+  imported_episodes: number
+  imported_memories: number
+  reseeded_at: string
+  reason: string | null
+}
+
+export interface CloneResult {
+  status: 'cloned'
+  source_subject_id: string
+  target_subject_id: string
+  target_display_name: string | null
+  clone_scope: MemoryScope
+  episode_count: number
+  memory_count: number
+  /** Sources/citations are not yet first-class cloneable records — the
+   *  backend always returns 0 here. The field is kept on the wire so the
+   *  shape stays stable when sources land later. */
+  source_count: number
+  cloned_at: string
+}
+
+export interface MemoryExportPayload {
+  format: 'statewave-memory-payload'
+  format_version: number
+  export_id: string
+  exported_at: string
+  export_scope: MemoryScope
+  subjects: Array<Record<string, unknown>>
+  episodes: Array<Record<string, unknown>>
+  memories: Array<Record<string, unknown>>
+  sources: Array<Record<string, unknown>>
+  metadata: Record<string, unknown>
+}
+
+export interface MemoryImportResult {
+  imported_at: string
+  export_id: string | null
+  conflict_strategy: ConflictStrategy
+  subject_id_map: Record<string, string>
+  imported_subjects: string[]
+  imported_episodes: number
+  imported_memories: number
+  imported_sources: number
+}
+
+export async function listStarterPacks(): Promise<StarterPack[]> {
+  const res = await fetch(adminUrl('/admin/memory/starter-packs'))
+  if (!res.ok) throw new Error(await readError(res))
+  const data = await res.json()
+  return data.packs ?? []
+}
+
+export interface ImportStarterPackOptions {
+  pack_id: string
+  target_subject_id?: string
+  target_display_name?: string
+  target_tenant_id?: string
+  conflict_strategy?: ConflictStrategy
+}
+
+export async function importStarterPack(
+  opts: ImportStarterPackOptions,
+): Promise<StarterPackImportResult> {
+  const res = await fetch(adminUrl('/admin/memory/starter-packs/import'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function reseedStatewaveSupport(reason?: string): Promise<SupportReseedResult> {
+  const res = await fetch(adminUrl('/admin/memory/support/reseed'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(reason ? { reason } : {}),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export interface CloneSubjectOptions {
+  source_subject_id: string
+  target_subject_id?: string
+  target_display_name?: string
+  target_tenant_id?: string
+  clone_scope?: MemoryScope
+}
+
+export async function cloneSubject(opts: CloneSubjectOptions): Promise<CloneResult> {
+  const res = await fetch(adminUrl('/admin/memory/clone'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export interface ExportSubjectsOptions {
+  subject_ids: string[]
+  tenant_id?: string
+  export_scope?: MemoryScope
+}
+
+/**
+ * Returns the PLAINTEXT export payload. The admin client is expected to
+ * encrypt this payload immediately via lib/swmem.ts before saving it to
+ * disk as a .swmem file. The passphrase never touches this function.
+ */
+export async function exportMemoryPayload(
+  opts: ExportSubjectsOptions,
+): Promise<MemoryExportPayload> {
+  const res = await fetch(adminUrl('/admin/memory/export'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export interface ImportMemoryOptions {
+  payload: MemoryExportPayload
+  target_tenant_id?: string
+  conflict_strategy?: ConflictStrategy
+}
+
+/**
+ * Send a previously decrypted memory payload to the backend. The .swmem
+ * container is opened locally (lib/swmem.ts), the passphrase is dropped on
+ * the floor, and only the decrypted JSON payload travels to the server.
+ */
+export async function importMemoryPayload(
+  opts: ImportMemoryOptions,
+): Promise<MemoryImportResult> {
+  const res = await fetch(adminUrl('/admin/memory/import'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()

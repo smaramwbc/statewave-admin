@@ -6,7 +6,7 @@ import { useAuth } from '../../lib/auth'
 export function Shell() {
   const { authDisabled, logout } = useAuth()
   return (
-    <div className="min-h-screen bg-[var(--theme-surface-0)] flex">
+    <div className="h-full min-h-0 bg-[var(--theme-surface-0)] flex">
       {/* Skip to main content link */}
       <a
         href="#main-content"

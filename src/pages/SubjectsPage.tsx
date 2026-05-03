@@ -5,11 +5,12 @@ import {
   FilterSelect,
   Pagination,
   EmptyState,
-  LoadingOverlay,
   ErrorState,
   HealthBadge,
   Badge,
   Modal,
+  TableSkeleton,
+  CopyableMono,
 } from '../components/ui'
 import {
   fetchSubjects,
@@ -21,6 +22,12 @@ import {
   type BulkDeletePreview,
   type BulkDeleteResult,
 } from '../lib/api'
+import { MemoryActionsDrawer } from '../components/MemoryActionsDrawer'
+import { SubjectRowActions } from '../components/SubjectRowActions'
+import { RefreshControl } from '../components/RefreshControl'
+import { Button, PageHeader } from '../components/ui'
+import { Upload, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
 
@@ -42,6 +49,7 @@ export function SubjectsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState<{ subjects: SubjectListItem[]; total: number } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [lastFetched, setLastFetched] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tenantOptions, setTenantOptions] = useState<{ value: string; label: string }[]>([])
   // Bulk-delete dialog state. Two phases: filter input → preview → confirm.
@@ -54,6 +62,17 @@ export function SubjectsPage() {
   const [bulkCommitting, setBulkCommitting] = useState(false)
   const [bulkError, setBulkError] = useState<string | null>(null)
   const [bulkResult, setBulkResult] = useState<BulkDeleteResult | null>(null)
+  // Match-all path: explicit opt-in to delete every subject in the workspace.
+  // Disables the per-filter inputs and requires the operator to type a
+  // confirmation phrase before commit. Backend mirrors this with `match_all`
+  // on BulkDeleteFilter.
+  const [bulkMatchAll, setBulkMatchAll] = useState(false)
+  const [bulkMatchAllConfirm, setBulkMatchAllConfirm] = useState('')
+  const MATCH_ALL_PHRASE = 'DELETE ALL'
+  // Memory portability drawer (Stage 1+ — vendor-neutral). Lives at the
+  // Subjects-page top so all platform-level memory operations are reachable
+  // here, not from the Dashboard.
+  const [showMemoryDrawer, setShowMemoryDrawer] = useState(false)
 
   // Extract params from URL
   const search = searchParams.get('search') || ''
@@ -104,6 +123,7 @@ export function SubjectsPage() {
         offset: (page - 1) * PAGE_SIZE,
       })
       setData({ subjects: result.subjects, total: result.total })
+      setLastFetched(new Date())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load subjects')
     } finally {
@@ -121,30 +141,47 @@ export function SubjectsPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold text-theme-primary">Subjects</h1>
-          <p className="text-sm text-theme-muted mt-0.5">
-            Browse and inspect subject memory, episodes, and health
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setBulkPrefix('')
-            setBulkAgeDays('')
-            setBulkTenant(tenantId || '')
-            setBulkPreview(null)
-            setBulkResult(null)
-            setBulkError(null)
-            setShowBulkModal(true)
-          }}
-          className="text-xs px-3 py-1.5 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors whitespace-nowrap"
-          title="Filtered bulk delete with preview before commit"
-        >
-          Bulk delete…
-        </button>
-      </div>
+      <PageHeader
+        title="Subjects"
+        description="Browse and inspect subject memory, episodes, and health"
+        actions={
+          <>
+            <RefreshControl
+              lastFetched={lastFetched}
+              onRefresh={() => void loadData()}
+              loading={loading}
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowMemoryDrawer(true)}
+              leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
+              title="Restore Statewave Support, import demo agents, or import a .swmem archive"
+            >
+              Import / Restore…
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setBulkPrefix('')
+                setBulkAgeDays('')
+                setBulkTenant(tenantId || '')
+                setBulkPreview(null)
+                setBulkResult(null)
+                setBulkError(null)
+                setBulkMatchAll(false)
+                setBulkMatchAllConfirm('')
+                setShowBulkModal(true)
+              }}
+              leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+              title="Filtered bulk delete with preview before commit"
+            >
+              Bulk delete…
+            </Button>
+          </>
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4">
@@ -188,24 +225,61 @@ export function SubjectsPage() {
       </div>
 
       {/* Results */}
-      {error && !data && <ErrorState message={error} onRetry={loadData} />}
+      {error && !data && (
+        <ErrorState
+          title="Failed to load subjects"
+          message="The admin proxy could not return the subject list."
+          suggestion="Check that the Statewave backend is reachable and try again."
+          technicalDetails={error}
+          onRetry={loadData}
+        />
+      )}
+
+      {/* Initial-load skeleton — only when there's nothing to show yet.
+          Background refreshes keep `data` populated and rely on the header
+          RefreshControl spinner instead of a blocking overlay. */}
+      {!data && !error && loading && (
+        <TableSkeleton
+          rows={8}
+          columns={7}
+          columnWidths={['w-56', 'w-24', 'w-16', 'w-12', 'w-12', 'w-12', 'w-32']}
+          ariaLabel="Loading subjects"
+        />
+      )}
 
       {data && data.subjects.length === 0 && (
         <EmptyState
-          title="No subjects found"
+          title={
+            search || healthState || tenantId
+              ? 'No subjects found'
+              : 'No subjects yet'
+          }
           description={
             search || healthState || tenantId
-              ? 'Try adjusting your search or filters'
-              : 'Subjects will appear here when episodes are ingested'
+              ? 'Try adjusting your search or filters.'
+              : 'Subjects appear when episodes are ingested or when you import a starter memory.'
+          }
+          primaryAction={
+            !(search || healthState || tenantId) ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowMemoryDrawer(true)}
+                leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
+              >
+                Import / Restore…
+              </Button>
+            ) : undefined
           }
           action={
             (search || healthState || tenantId) && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setSearchParams(new URLSearchParams())}
-                className="text-xs text-accent hover:text-accent-light"
               >
                 Clear filters
-              </button>
+              </Button>
             )
           }
         />
@@ -213,18 +287,22 @@ export function SubjectsPage() {
 
       {data && data.subjects.length > 0 && (
         <>
-          {/* Table */}
-          <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-hidden">
+          {/* Table. The card uses overflow-x-auto so wide content can scroll
+              horizontally; the sticky <thead> sticks to the top of <main>'s
+              scroll viewport so column labels stay visible while the user
+              scrolls past row 30. */}
+          <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-x-auto">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-theme-border bg-[var(--theme-surface-1)]">
-                  <th className="text-left font-medium text-theme-muted px-4 py-3">Subject ID</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-3">Tenant</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-3">Health</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-3">Memories</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-3">Episodes</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-3">Open</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-3">Last Activity</th>
+              <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
+                <tr>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Subject ID</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Tenant</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Health</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Memories</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Episodes</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Open</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Last Activity</th>
+                  <th className="w-10 px-2 py-3" aria-label="Row actions"></th>
                 </tr>
               </thead>
               <tbody>
@@ -234,12 +312,23 @@ export function SubjectsPage() {
                     className="border-b border-theme-border/50 last:border-b-0 hover:bg-[var(--theme-surface-1)]/50 transition-colors"
                   >
                     <td className="px-4 py-3">
-                      <Link
-                        to={`/subjects/${encodeURIComponent(subject.subject_id)}`}
-                        className="text-theme-primary hover:text-accent font-medium transition-colors"
-                      >
-                        {subject.subject_id}
-                      </Link>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Link
+                          to={`/subjects/${encodeURIComponent(subject.subject_id)}`}
+                          className="text-theme-primary hover:text-accent font-mono text-xs truncate transition-colors"
+                          title={subject.subject_id}
+                        >
+                          {subject.subject_id}
+                        </Link>
+                        <CopyableMono
+                          value={subject.subject_id}
+                          labelForA11y="subject ID"
+                          className="shrink-0"
+                          // The link itself renders the visible text; we
+                          // only need the copy affordance here.
+                          display=""
+                        />
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-theme-muted text-xs font-mono">
@@ -267,6 +356,12 @@ export function SubjectsPage() {
                         ? new Date(subject.last_episode_at).toLocaleString()
                         : '—'}
                     </td>
+                    <td className="px-2 py-2 text-right">
+                      <SubjectRowActions
+                        subjectId={subject.subject_id}
+                        onCloneComplete={loadData}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -280,11 +375,17 @@ export function SubjectsPage() {
             totalItems={data.total}
             onPageChange={(p) => updateParams({ page: String(p) })}
           />
+
+          {/* Summary — matches Jobs/Webhooks footer */}
+          <div className="mt-4 text-xs text-theme-muted text-right">
+            Showing {data.subjects.length} of {data.total} subjects
+          </div>
         </>
       )}
 
-      {/* Loading overlay for initial load and refetch */}
-      {loading && <LoadingOverlay message={data ? "Loading subjects…" : "Loading subjects…"} />}
+      {/* No blocking overlay during refresh — initial-load skeleton above
+          handles the no-data case; subsequent refreshes keep current rows
+          visible and rely on the header RefreshControl spinner. */}
 
       <Modal
         open={showBulkModal}
@@ -295,10 +396,13 @@ export function SubjectsPage() {
           {!bulkResult && (
             <>
               <p className="text-theme-muted text-xs">
-                Specify at least one filter. Preview shows what will be deleted before you commit.
-                Episodes, memories, and sessions for matched subjects are removed permanently.
+                Specify at least one filter, or use{' '}
+                <span className="text-theme-secondary">Match every subject</span>{' '}
+                below to wipe the entire workspace. Preview shows what will be
+                deleted before you commit. Episodes, memories, and sessions for
+                matched subjects are removed permanently.
               </p>
-              <div className="grid grid-cols-1 gap-3">
+              <div className={`grid grid-cols-1 gap-3 ${bulkMatchAll ? 'opacity-40 pointer-events-none' : ''}`}>
                 <label className="block">
                   <span className="block text-xs text-theme-muted mb-1">Subject ID prefix</span>
                   <input
@@ -306,7 +410,8 @@ export function SubjectsPage() {
                     value={bulkPrefix}
                     onChange={(e) => { setBulkPrefix(e.target.value); setBulkPreview(null) }}
                     placeholder="e.g. demo_web_"
-                    className="w-full px-3 py-2 text-sm font-mono rounded border border-theme-border bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-accent/50"
+                    disabled={bulkMatchAll}
+                    className="w-full px-3 py-2 text-sm font-mono rounded border border-theme-border bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-accent/50 disabled:cursor-not-allowed"
                   />
                 </label>
                 <label className="block">
@@ -317,7 +422,8 @@ export function SubjectsPage() {
                     value={bulkAgeDays}
                     onChange={(e) => { setBulkAgeDays(e.target.value); setBulkPreview(null) }}
                     placeholder="e.g. 30"
-                    className="w-full px-3 py-2 text-sm rounded border border-theme-border bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-accent/50"
+                    disabled={bulkMatchAll}
+                    className="w-full px-3 py-2 text-sm rounded border border-theme-border bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-accent/50 disabled:cursor-not-allowed"
                   />
                 </label>
                 {tenantOptions.length > 0 && (
@@ -331,6 +437,54 @@ export function SubjectsPage() {
                       aria-label="Filter by tenant"
                     />
                   </label>
+                )}
+              </div>
+
+              {/* Match-all opt-in. Hides behind a checkbox + type-to-confirm
+                  phrase so the destructive intent is verbal, not accidental. */}
+              <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 space-y-2">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={bulkMatchAll}
+                    onChange={(e) => {
+                      setBulkMatchAll(e.target.checked)
+                      setBulkPreview(null)
+                      setBulkMatchAllConfirm('')
+                    }}
+                    className="mt-0.5 accent-red-500"
+                  />
+                  <span className="text-xs">
+                    <span className="font-medium text-red-400">
+                      Match every subject in the workspace
+                    </span>
+                    <span className="block text-theme-muted mt-0.5">
+                      Ignores the filters above and targets every subject — including
+                      Statewave Support docs and any visitor memory subjects.
+                      Cannot be undone.
+                    </span>
+                  </span>
+                </label>
+                {bulkMatchAll && (
+                  <div className="pl-6 space-y-2">
+                    <label className="block">
+                      <span className="block text-[11px] text-theme-muted mb-1">
+                        Type{' '}
+                        <span className="font-mono text-red-400">
+                          {MATCH_ALL_PHRASE}
+                        </span>{' '}
+                        to confirm
+                      </span>
+                      <input
+                        type="text"
+                        value={bulkMatchAllConfirm}
+                        onChange={(e) => setBulkMatchAllConfirm(e.target.value)}
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="w-full px-3 py-1.5 text-sm font-mono rounded-lg border border-red-500/40 bg-theme-surface-1 text-theme-primary focus:outline-none focus:border-red-500/70"
+                      />
+                    </label>
+                  </div>
                 )}
               </div>
 
@@ -369,67 +523,112 @@ export function SubjectsPage() {
 
               {bulkError && <p className="text-xs text-red-400">{bulkError}</p>}
 
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  onClick={() => setShowBulkModal(false)}
-                  disabled={bulkPreviewing || bulkCommitting}
-                  className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-secondary hover:bg-theme-surface-1 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    setBulkPreviewing(true)
-                    setBulkError(null)
-                    try {
-                      const filter = {
+              {/* Two-stage flow with one CTA at a time:
+                  * State 1 (no preview): Preview matches is the only forward action
+                  * State 2 (matched > 0): Delete becomes available alongside Re-preview
+                  * State 3 (matched = 0): only Re-preview, no Delete to be disabled
+                  This avoids the previous footgun where users saw a disabled Delete
+                  button without context. The OS-level confirm() is gone — the
+                  combined preview + match-all type-to-confirm gates already gate
+                  destructive intent verbally. */}
+              {(() => {
+                const buildFilter = () =>
+                  bulkMatchAll
+                    ? { match_all: true }
+                    : {
                         subject_id_prefix: bulkPrefix || undefined,
                         older_than_days: bulkAgeDays ? Number(bulkAgeDays) : undefined,
                         tenant_id: bulkTenant || undefined,
                       }
-                      const pv = await previewBulkDelete(filter)
-                      setBulkPreview(pv)
-                    } catch (err) {
-                      setBulkError(err instanceof Error ? err.message : 'Preview failed')
-                    } finally {
-                      setBulkPreviewing(false)
-                    }
-                  }}
-                  disabled={bulkPreviewing || bulkCommitting || (!bulkPrefix && !bulkAgeDays && !bulkTenant)}
-                  className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-primary hover:bg-theme-surface-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {bulkPreviewing ? 'Previewing…' : 'Preview matches'}
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!bulkPreview || bulkPreview.matched === 0) return
-                    if (!window.confirm(
-                      `Delete ${bulkPreview.matched} subjects (${bulkPreview.total_episodes} episodes, ${bulkPreview.total_memories} memories)? This is permanent.`
-                    )) return
-                    setBulkCommitting(true)
-                    setBulkError(null)
-                    try {
-                      const filter = {
-                        subject_id_prefix: bulkPrefix || undefined,
-                        older_than_days: bulkAgeDays ? Number(bulkAgeDays) : undefined,
-                        tenant_id: bulkTenant || undefined,
-                      }
-                      const result = await commitBulkDelete(filter, bulkPreview.matched)
-                      setBulkResult(result)
-                      // Refresh the subjects list since some are gone now
-                      void loadData()
-                    } catch (err) {
-                      setBulkError(err instanceof Error ? err.message : 'Delete failed')
-                    } finally {
-                      setBulkCommitting(false)
-                    }
-                  }}
-                  disabled={bulkCommitting || !bulkPreview || bulkPreview.matched === 0}
-                  className="px-3 py-1.5 text-xs rounded bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {bulkCommitting ? 'Deleting…' : `Delete ${bulkPreview?.matched ?? ''} subjects`}
-                </button>
-              </div>
+
+                const previewMatches = async () => {
+                  setBulkPreviewing(true)
+                  setBulkError(null)
+                  try {
+                    const pv = await previewBulkDelete(buildFilter())
+                    setBulkPreview(pv)
+                  } catch (err) {
+                    setBulkError(err instanceof Error ? err.message : 'Preview failed')
+                  } finally {
+                    setBulkPreviewing(false)
+                  }
+                }
+
+                const commit = async () => {
+                  if (!bulkPreview || bulkPreview.matched === 0) return
+                  if (bulkMatchAll && bulkMatchAllConfirm !== MATCH_ALL_PHRASE) return
+                  setBulkCommitting(true)
+                  setBulkError(null)
+                  try {
+                    const result = await commitBulkDelete(buildFilter(), bulkPreview.matched)
+                    setBulkResult(result)
+                    toast.success(`Deleted ${result.deleted_subjects} subjects`, {
+                      description: `${result.deleted_episodes} episodes · ${result.deleted_memories} memories`,
+                    })
+                    void loadData()
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : 'Delete failed'
+                    setBulkError(msg)
+                    toast.error('Bulk delete failed', { description: msg })
+                  } finally {
+                    setBulkCommitting(false)
+                  }
+                }
+
+                const noFilterSet =
+                  !bulkMatchAll && !bulkPrefix && !bulkAgeDays && !bulkTenant
+                const previewLabel = bulkPreview ? 'Re-preview' : 'Preview matches'
+                const showDelete = !!bulkPreview && bulkPreview.matched > 0
+                const matchAllNotConfirmed =
+                  bulkMatchAll && bulkMatchAllConfirm !== MATCH_ALL_PHRASE
+
+                return (
+                  <div className="flex justify-end items-center gap-2 pt-1">
+                    {bulkPreview && bulkPreview.matched === 0 && (
+                      <p className="text-xs text-theme-muted mr-auto">
+                        Nothing matches this filter — adjust and re-preview.
+                      </p>
+                    )}
+                    {showDelete && bulkMatchAll && matchAllNotConfirmed && (
+                      <p className="text-xs text-amber-400 mr-auto">
+                        Type{' '}
+                        <span className="font-mono">{MATCH_ALL_PHRASE}</span>{' '}
+                        above to enable Delete.
+                      </p>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowBulkModal(false)}
+                      disabled={bulkPreviewing || bulkCommitting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={previewMatches}
+                      loading={bulkPreviewing}
+                      disabled={bulkPreviewing || bulkCommitting || noFilterSet}
+                    >
+                      {bulkPreviewing ? 'Previewing…' : previewLabel}
+                    </Button>
+                    {showDelete && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={commit}
+                        loading={bulkCommitting}
+                        disabled={bulkCommitting || matchAllNotConfirmed}
+                      >
+                        {bulkCommitting
+                          ? 'Deleting…'
+                          : `Delete ${bulkPreview.matched} subject${bulkPreview.matched === 1 ? '' : 's'}`}
+                      </Button>
+                    )}
+                  </div>
+                )
+              })()}
             </>
           )}
 
@@ -450,17 +649,24 @@ export function SubjectsPage() {
                 )}
               </div>
               <div className="flex justify-end">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setShowBulkModal(false)}
-                  className="px-3 py-1.5 text-xs rounded border border-theme-border text-theme-secondary hover:bg-theme-surface-1"
                 >
                   Close
-                </button>
+                </Button>
               </div>
             </div>
           )}
         </div>
       </Modal>
+
+      <MemoryActionsDrawer
+        open={showMemoryDrawer}
+        onClose={() => setShowMemoryDrawer(false)}
+        onImportComplete={loadData}
+      />
     </div>
   )
 }

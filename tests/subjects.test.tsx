@@ -53,8 +53,9 @@ describe('SubjectsPage', () => {
   it('renders loading state initially', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
     renderWithProviders(<SubjectsPage />)
-    // Loading overlay shown with spinner
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    // Initial load renders a TableSkeleton (animate-pulse blocks) instead
+    // of the previous full-page LoadingOverlay.
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
   it('renders subjects list after fetch', async () => {
@@ -83,7 +84,9 @@ describe('SubjectsPage', () => {
     renderWithProviders(<SubjectsPage />)
 
     await waitFor(() => {
-      expect(screen.getByText('No subjects found')).toBeInTheDocument()
+      // Premium copy says "No subjects yet" when the workspace is truly
+      // empty (no filters set).
+      expect(screen.getByText('No subjects yet')).toBeInTheDocument()
     })
   })
 
@@ -93,7 +96,10 @@ describe('SubjectsPage', () => {
     renderWithProviders(<SubjectsPage />)
 
     await waitFor(() => {
-      expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+      // The structured ErrorState now leads with "Failed to load subjects"
+      // (what broke), with the underlying message available behind the
+      // technical-details disclosure.
+      expect(screen.getByText('Failed to load subjects')).toBeInTheDocument()
     })
   })
 })

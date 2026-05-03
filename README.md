@@ -93,6 +93,150 @@ All variables are **server-side only**. None may use a `VITE_*` prefix — those
 - Vitest + Testing Library
 - Standalone Node HTTP server with **zero npm runtime dependencies**
 
+## Memory management
+
+All memory operations live on the **Subjects** page — never on the Dashboard. Open Subjects and use the **Import / Restore…** button (top right) for platform-level actions, or the **Clone** / **Export** controls in each subject row for subject-scoped actions.
+
+The features are **vendor-neutral** — no GitHub Actions, Fly.io, or Vercel-specific dependency. Everything routes through the Statewave backend at `/admin/memory/*`.
+
+### Restore Statewave Support
+
+Section A of the Import / Restore drawer. Rebuilds the shared `statewave-support-docs` subject from the bundled `statewave-support-agent` starter pack.
+
+- **Affected subject:** `statewave-support-docs` (the shared docs pack only).
+- **Visitor memory is NOT touched.** Per-visitor `demo_web_<uuid>__statewave-support` subjects — the personalisation pool used by the marketing widget's hybrid Support persona — are explicitly excluded.
+- **Idempotent.** Every reseed purges existing rows on the target subject before re-importing, so re-running cannot accumulate duplicates.
+
+### Import demo agent memories
+
+Section B of the drawer. Each card represents a bundled platform starter pack — `default-support-agent`, `coding-assistant`, `sales-copilot`, `devops-agent`, `research-assistant`. Clicking **Import** creates a fresh tenant-owned subject with provenance metadata (`starter_pack_id`, `starter_pack_version`, `imported_at`) on every record. Default conflict strategy: `create_copy` (never overwrites without explicit choice).
+
+### Clone subject
+
+Open a subject's row-action kebab on the Subjects page and pick **Clone subject** to fork its memory into a brand-new subject for experiments. The original subject is never mutated.
+
+The modal asks for:
+
+| Field | Notes |
+|---|---|
+| **Source subject** | Read-only — the row you opened the menu from. |
+| **Target subject ID** *(optional)* | Safe characters only (`A–Z a–z 0–9 _ . - :`, max 128 chars). Leave blank to auto-generate (`{source}-clone-<hex>`). |
+| **Display name** *(optional)* | Human-readable label stored in metadata. |
+| **Clone scope** | One of: |
+
+| Scope | What gets copied |
+|---|---|
+| `episodes_memories_sources` *(default)* | Every episode + every compiled memory + sources/citations.¹ |
+| `episodes_and_memories` | Episodes + compiled memories. |
+| `episodes` | Only raw episodes — useful when you want to recompile from scratch. |
+| `memories` | Only compiled memories — useful when you want to inspect compiled state without the raw episode trail. |
+
+¹ **Sources/citations are not yet first-class cloneable records.** The scope name is honoured for forward compatibility but the response always reports `source_count: 0` today.
+
+**Provenance** is stamped on every copied record:
+- `cloned_from_subject_id` — original subject id
+- `cloned_at` — ISO timestamp of the clone operation
+- `cloned_by` — operator email (if your admin proxy forwards `X-Statewave-Operator-Email`)
+- `original_episode_id` / `original_memory_id` — pre-clone record id
+
+**Errors** surface inline in the modal:
+- **400** — invalid input (bad subject id, unsupported scope)
+- **404** — source subject not found
+- **409** — target subject already has data (pick a different id)
+
+**Export / import is intentionally a separate feature.** This task only ships the in-system clone. The encrypted `.swmem` export / import described below is a related but independent flow.
+
+### Export encrypted `.swmem`
+
+Each row also exposes **Export**, which:
+
+1. Asks for a passphrase + confirmation **in the browser**.
+2. Calls `POST /admin/memory/export` for the plaintext payload.
+3. **Encrypts client-side** with AES-256-GCM, key derived from the passphrase via PBKDF2-SHA256 (600 000 iterations).
+4. Triggers a download of a single `.swmem` file with magic `SWMEM1`.
+
+The passphrase never reaches the server. There is no server-side encryption path.
+
+### Import encrypted `.swmem`
+
+Section C of the drawer. Pick a `.swmem` file from disk, enter the passphrase, and the browser decrypts locally. A preview shows subject / episode / memory counts and original subject ids. Clicking **Import archive** sends the decrypted payload to `POST /admin/memory/import`. By default new subject ids are generated to avoid collisions; the original ids stay in provenance metadata.
+
+### Security model
+
+- **Passphrase never leaves the browser.** Encryption / decryption are pure WebCrypto operations in `src/lib/swmem.ts`. No request body to the backend ever contains the passphrase — there's a regression test for this.
+- **Authenticated encryption** (AES-256-GCM). Wrong passphrase and tampered ciphertext both surface as the same user-visible error: *"Wrong passphrase or corrupted file."*
+- **Header in cleartext** — `format`, `format_version`, `encryption_algorithm`, `kdf`, `kdf_params`, `salt`, `nonce`, `created_at`. No secrets. The header is what makes future format upgrades (e.g. Argon2id) decodable for old files.
+- **Hard limits** on imported size and record counts, configurable via `STATEWAVE_MEMORY_IMPORT_MAX_*` settings.
+- **Memory content is never logged.** Server log lines carry subject ids, counts, and pack ids only.
+- **Passphrase recovery is impossible.** Statewave cannot decrypt an export without the passphrase. The export modal warns the user.
+
+### `.swmem` file format (v1)
+
+```
+bytes  0..5   "SWMEM1"             magic
+bytes  6..9   uint32 LE            JSON-header length N
+bytes 10..10+N JSON header         encryption metadata, no secrets
+bytes 10+N..  ciphertext + GCM tag AEAD-protected payload
+```
+
+Header schema (cleartext):
+
+```json
+{
+  "format": "statewave-memory-export",
+  "format_version": 1,
+  "encryption_algorithm": "AES-256-GCM",
+  "kdf": "PBKDF2-SHA256",
+  "kdf_params": { "iterations": 600000, "hash": "SHA-256" },
+  "salt": "<base64 16 bytes>",
+  "nonce": "<base64 12 bytes>",
+  "created_at": "ISO-8601"
+}
+```
+
+Decrypted payload schema:
+
+```json
+{
+  "format": "statewave-memory-payload",
+  "format_version": 1,
+  "export_id": "...",
+  "exported_at": "...",
+  "export_scope": "episodes_memories_sources",
+  "subjects": [...],
+  "episodes": [...],
+  "memories": [...],
+  "sources": [],
+  "metadata": {...}
+}
+```
+
+### Backend configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STATEWAVE_SUPPORT_SUBJECT_ID` | `statewave-support-docs` | Shared subject id rebuilt by the support reseed action |
+| `STATEWAVE_SUPPORT_STARTER_PACK_ID` | `statewave-support-agent` | Starter pack used as the source for support reseed |
+| `STATEWAVE_MEMORY_IMPORT_MAX_BYTES` | `52428800` (50 MiB) | Hard cap on a single import payload's serialized size |
+| `STATEWAVE_MEMORY_IMPORT_MAX_EPISODES` | `50000` | Per-import episode count cap |
+| `STATEWAVE_MEMORY_IMPORT_MAX_MEMORIES` | `50000` | Per-import memory count cap |
+| `STATEWAVE_MEMORY_IMPORT_MAX_SUBJECTS` | `100` | Subjects per export / import |
+
+No GitHub PAT or external-service token is required.
+
+### API endpoints
+
+All under `/admin/memory/*`, gated by the existing X-API-Key middleware:
+
+| Method + Path | Purpose |
+|---|---|
+| `GET  /admin/memory/starter-packs` | List bundled platform packs (manifest metadata only) |
+| `POST /admin/memory/starter-packs/import` | Import a bundled pack into a new subject |
+| `POST /admin/memory/support/reseed` | Rebuild `statewave-support-docs` (idempotent) |
+| `POST /admin/memory/clone` | Clone a subject (refuses to overwrite by default) |
+| `POST /admin/memory/export` | Build a versioned plaintext export payload |
+| `POST /admin/memory/import` | Ingest a previously decrypted payload |
+
 ## Deployment
 
 statewave-admin is a privileged operator console. Never deploy it publicly without protection. The built-in password gate is the baseline; for team/business use, layer an identity-aware proxy on top.

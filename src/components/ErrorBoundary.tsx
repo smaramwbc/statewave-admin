@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { AlertTriangle } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -106,26 +107,29 @@ function AppErrorFallback({
   onReload: () => void
 }) {
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-6">
+    <div className="min-h-screen bg-[var(--theme-surface-0)] flex items-center justify-center p-6">
       <div className="max-w-md w-full">
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-center">
           <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <AlertTriangle className="w-6 h-6 text-red-400" aria-hidden="true" />
           </div>
-          <h1 className="text-lg font-semibold text-white mb-2">Something went wrong</h1>
-          <p className="text-sm text-gray-400 mb-4">
+          <h1 className="text-lg font-semibold text-theme-primary mb-2">Something went wrong</h1>
+          <p className="text-sm text-theme-muted mb-4">
             The admin console encountered an unexpected error.
           </p>
           {isDev && error && (
-            <div className="mb-4 p-3 rounded-lg bg-black/50 text-left">
+            <div className="mb-4 p-3 rounded-lg bg-[var(--theme-surface-1)] border border-theme-border text-left">
               <p className="text-xs font-mono text-red-400 break-all">{error.message}</p>
             </div>
           )}
+          {/* Raw <button> here on purpose: this fallback runs when the React
+              tree above us has crashed. Importing the Button primitive — or
+              any other component graph — risks the same module being the
+              thing that broke. Keep this dependency-free. */}
           <button
+            type="button"
             onClick={onReload}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-colors"
           >
             Reload Page
           </button>
@@ -163,7 +167,7 @@ function PageErrorFallback({
               Something went wrong while rendering this page. You can try again or navigate to another section.
             </p>
             {isDev && error && (
-              <div className="mb-4 p-3 rounded-lg bg-black/30 border border-red-500/10">
+              <div className="mb-4 p-3 rounded-lg bg-[var(--theme-surface-1)] border border-red-500/10">
                 <p className="text-xs font-mono text-red-400 break-all">{error.message}</p>
               </div>
             )}

@@ -63,11 +63,15 @@ describe('Admin Dashboard', () => {
     await act(async () => {
       render(<App />)
     })
+    // Initial-load now uses skeleton placeholders rather than the
+    // previous full-page LoadingOverlay. The skeleton sections still
+    // render the page's section labels so the layout doesn't reflow
+    // when data arrives.
     await waitFor(() => {
-      expect(screen.getByText('Loading dashboard…')).toBeInTheDocument()
+      expect(screen.getByText('System Status')).toBeInTheDocument()
     })
-    // Should have spinner overlay
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    // Skeleton blocks carry the animate-pulse class.
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
   it('renders dashboard data after fetch', async () => {

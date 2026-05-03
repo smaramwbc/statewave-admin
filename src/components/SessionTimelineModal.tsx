@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { Modal, Badge, LoadingOverlay, EmptyState } from './ui'
 import {
   fetchSessionTimeline,
@@ -257,7 +258,7 @@ export function SessionTimelineModal({
                   {timeline.first_response_seconds != null
                     ? formatDuration(timeline.first_response_seconds)
                     : '—'}
-                  {timeline.first_response_breached && ' ⚠'}
+                  {timeline.first_response_breached && <AlertTriangle className='inline h-3 w-3 ml-1' aria-label='SLA breached' />}
                 </p>
               </div>
               <div>
@@ -266,7 +267,7 @@ export function SessionTimelineModal({
                   {timeline.resolution_seconds != null
                     ? formatDuration(timeline.resolution_seconds)
                     : '—'}
-                  {timeline.resolution_breached && ' ⚠'}
+                  {timeline.resolution_breached && <AlertTriangle className='inline h-3 w-3 ml-1' aria-label='SLA breached' />}
                 </p>
               </div>
               <div>
@@ -407,13 +408,20 @@ export function SessionTimelineModal({
                       </div>
                       <div className="flex items-center gap-2">
                         {ep.citing_memory_count > 0 && (
+                          // Inline 10px disclosure toggle inside a timeline
+                          // event row. FilterChip's `text-xs px-3 py-1` pill
+                          // would push the row taller and disrupt the dense
+                          // chronological feel; keep this raw and surface
+                          // toggle state via aria-expanded.
                           <button
+                            type="button"
                             onClick={toggleExpand}
+                            aria-expanded={isExpanded}
                             className={`
                               flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]
                               transition-colors
-                              ${isExpanded 
-                                ? 'bg-accent/20 text-accent ring-1 ring-accent/30' 
+                              ${isExpanded
+                                ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
                                 : 'bg-accent/10 text-accent hover:bg-accent/20'
                               }
                             `}

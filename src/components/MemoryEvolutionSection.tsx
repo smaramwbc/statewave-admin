@@ -26,7 +26,11 @@ function RelatedMemoryCard({
   const rel = relationshipLabels[memory.relationship] || { label: memory.relationship, color: 'text-theme-muted bg-theme-surface-1' }
 
   return (
+    // Full-card activatable target — kept raw because Button/IconButton
+    // would force a different shape. Same rationale as the
+    // SessionTimelinePage memory cards.
     <button
+      type="button"
       onClick={onClick}
       className="w-full text-left p-3 rounded-lg border border-theme-border/50 hover:border-accent/40 hover:bg-accent/5 transition-all group"
     >
@@ -149,9 +153,13 @@ export function MemoryEvolutionSection({
 
   return (
     <div className="pt-4 border-t border-theme-border/50">
-      {/* Header with toggle */}
+      {/* Header with toggle — full-width disclosure trigger. Raw <button>
+          intentional (full-row, label-on-the-left, chevron-on-the-right);
+          aria-expanded surfaces the state semantics. */}
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="w-full flex items-center justify-between group"
       >
         <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide">

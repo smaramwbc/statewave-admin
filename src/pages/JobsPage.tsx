@@ -5,11 +5,15 @@ import {
   Pagination,
   EmptyState,
   NoResultsState,
-  LoadingOverlay,
   ErrorState,
   Badge,
+  TableSkeleton,
+  CopyableMono,
 } from '../components/ui'
 import { fetchCompileJobs, type CompileJobListItem } from '../lib/api'
+import { RefreshControl } from '../components/RefreshControl'
+import { PageHeader } from '../components/ui'
+import { AlertTriangle } from 'lucide-react'
 
 const PAGE_SIZE = 50
 
@@ -92,17 +96,30 @@ function JobRow({ job }: { job: CompileJobListItem }) {
     <tr className="border-b border-theme-border/50 last:border-0 hover:bg-[var(--theme-surface-1)]/50">
       {/* Job ID */}
       <td className="px-4 py-3">
-        <code className="text-xs font-mono text-theme-secondary">{job.job_id}</code>
+        <CopyableMono
+          value={job.job_id}
+          labelForA11y="job ID"
+          maxWidthClass="max-w-[14ch]"
+        />
       </td>
 
       {/* Subject */}
       <td className="px-4 py-3">
-        <Link
-          to={`/subjects/${encodeURIComponent(job.subject_id)}`}
-          className="text-xs font-mono text-accent hover:text-accent-light hover:underline underline-offset-2"
-        >
-          {job.subject_id.length > 30 ? `${job.subject_id.slice(0, 30)}…` : job.subject_id}
-        </Link>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Link
+            to={`/subjects/${encodeURIComponent(job.subject_id)}`}
+            className="text-xs font-mono text-accent hover:text-accent-light hover:underline underline-offset-2 truncate"
+            title={job.subject_id}
+          >
+            {job.subject_id}
+          </Link>
+          <CopyableMono
+            value={job.subject_id}
+            labelForA11y="subject ID"
+            display=""
+            className="shrink-0"
+          />
+        </div>
       </td>
 
       {/* Status */}
@@ -155,6 +172,7 @@ export function JobsPage() {
   const [data, setData] = useState<{ jobs: CompileJobListItem[]; total: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastFetched, setLastFetched] = useState<Date | null>(null)
 
   // Extract params from URL
   const statusFilter = searchParams.get('status') || ''
@@ -189,6 +207,7 @@ export function JobsPage() {
         offset: (page - 1) * PAGE_SIZE,
       })
       setData({ jobs: result.jobs, total: result.total })
+      setLastFetched(new Date())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load jobs')
     } finally {
@@ -217,13 +236,17 @@ export function JobsPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold text-theme-primary">Compile Jobs</h1>
-        <p className="text-sm text-theme-muted mt-0.5">
-          Monitor memory compilation jobs and identify failures
-        </p>
-      </div>
+      <PageHeader
+        title="Compile Jobs"
+        description="Monitor memory compilation jobs and identify failures"
+        actions={
+          <RefreshControl
+            lastFetched={lastFetched}
+            onRefresh={() => void loadData()}
+            loading={loading}
+          />
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4 items-center">
@@ -238,35 +261,43 @@ export function JobsPage() {
         </div>
 
         {stuckCount > 0 && (
-          <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 inline-flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
             <span className="text-xs text-amber-400 font-medium">
-              ⚠ {stuckCount} stuck job{stuckCount > 1 ? 's' : ''}
+              {stuckCount} stuck job{stuckCount > 1 ? 's' : ''}
             </span>
           </div>
         )}
 
         <div className="flex-1" />
-
-        <button
-          onClick={() => loadData()}
-          disabled={loading}
-          className="px-3 py-1.5 text-xs text-theme-muted hover:text-theme-secondary border border-theme-border rounded-lg hover:bg-[var(--theme-surface-1)] transition-colors disabled:opacity-50"
-        >
-          {loading ? 'Refreshing…' : 'Refresh'}
-        </button>
       </div>
 
-      {/* Loading */}
-      {loading && !data && <LoadingOverlay message="Loading jobs…" />}
+      {/* Initial-load skeleton — keep current data on background refresh */}
+      {loading && !data && (
+        <TableSkeleton
+          rows={6}
+          columns={7}
+          columnWidths={['w-32', 'w-40', 'w-20', 'w-12', 'w-12', 'w-20', 'w-32']}
+          ariaLabel="Loading jobs"
+        />
+      )}
 
       {/* Error */}
-      {error && <ErrorState message={error} onRetry={loadData} />}
+      {error && (
+        <ErrorState
+          title="Failed to load jobs"
+          message="The admin proxy could not return the compile-jobs list."
+          suggestion="Check that the Statewave backend is reachable and try again."
+          technicalDetails={error}
+          onRetry={loadData}
+        />
+      )}
 
       {/* Empty - no data ever */}
       {!loading && !error && data?.jobs.length === 0 && !statusFilter && (
         <EmptyState
-          title="No jobs found"
-          description="No compile jobs recorded yet"
+          title="No jobs yet"
+          description="Compile, import, restore, and maintenance jobs will appear here when they run."
         />
       )}
 
@@ -281,18 +312,18 @@ export function JobsPage() {
 
       {/* Jobs Table */}
       {data && data.jobs.length > 0 && (
-        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-hidden">
+        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-theme-border bg-[var(--theme-surface-1)]">
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Job ID</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Subject</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Status</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-2.5 text-xs">Memories</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-2.5 text-xs">Duration</th>
-                  <th className="text-right font-medium text-theme-muted px-4 py-2.5 text-xs">Created</th>
-                  <th className="text-left font-medium text-theme-muted px-4 py-2.5 text-xs">Error</th>
+              <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
+                <tr>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Job ID</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Subject</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Status</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Memories</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Duration</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Created</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Error</th>
                 </tr>
               </thead>
               <tbody>
@@ -320,7 +351,7 @@ export function JobsPage() {
       {/* Summary */}
       {data && (
         <div className="mt-4 text-xs text-theme-muted text-right">
-          Showing {data.jobs.length} of {data.total} jobs · Auto-refreshes every 30s
+          Showing {data.jobs.length} of {data.total} jobs
         </div>
       )}
     </div>

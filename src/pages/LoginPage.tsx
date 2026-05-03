@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
+import { Button } from '../components/ui'
 
 export function LoginPage() {
   const { login, configError, authDisabled } = useAuth()
@@ -87,13 +88,16 @@ export function LoginPage() {
               </div>
             )}
 
-            <button
+            <Button
               type="submit"
-              disabled={submitting || !password}
-              className="w-full rounded-lg bg-accent text-white text-sm font-medium px-3 py-2 disabled:opacity-50 transition-opacity"
+              variant="primary"
+              size="md"
+              disabled={!password}
+              loading={submitting}
+              className="w-full"
             >
               {submitting ? 'Signing in…' : 'Sign in'}
-            </button>
+            </Button>
           </form>
         </div>
 
