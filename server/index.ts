@@ -41,6 +41,34 @@ const MIME: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
 }
 
+/**
+ * Decide cache-control headers for a static asset.
+ *
+ *   - sw.js, manifest, offline.html, root index.html: never cache. The
+ *     service worker file in particular MUST always be served fresh —
+ *     a cached SW means users get stuck on an old build and we lose the
+ *     ability to ship updates.
+ *   - Vite content-hashed assets under /assets/*: cache forever; the
+ *     hash in the filename invalidates them naturally on a new build.
+ *   - Everything else: short max-age + must-revalidate so a deploy
+ *     reaches users quickly without flooding the origin.
+ */
+function cacheControlFor(pathname: string): string {
+  if (
+    pathname === '/sw.js' ||
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/offline.html' ||
+    pathname === '/' ||
+    pathname.endsWith('/index.html')
+  ) {
+    return 'no-cache, no-store, must-revalidate'
+  }
+  if (pathname.startsWith('/assets/')) {
+    return 'public, max-age=31536000, immutable'
+  }
+  return 'public, max-age=300, must-revalidate'
+}
+
 async function serveStatic(_req: IncomingMessage, res: ServerResponse, pathname: string) {
   const safe = normalize(pathname).replace(/^(\.\.[\\/])+/, '/')
   let filePath = join(STATIC_DIR, safe)
@@ -60,11 +88,19 @@ async function serveStatic(_req: IncomingMessage, res: ServerResponse, pathname:
     const ext = extname(filePath).toLowerCase()
     res.statusCode = 200
     res.setHeader('Content-Type', MIME[ext] ?? 'application/octet-stream')
+    res.setHeader('Cache-Control', cacheControlFor(pathname))
+    // The service worker is restricted to its own origin's scope. Set
+    // the explicit Service-Worker-Allowed header anyway so downstream
+    // caches understand its scope contract.
+    if (pathname === '/sw.js') {
+      res.setHeader('Service-Worker-Allowed', '/')
+    }
     res.end(await readFile(filePath))
   } catch {
     try {
       res.statusCode = 200
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
       res.end(await readFile(join(STATIC_DIR, 'index.html')))
     } catch {
       res.statusCode = 404
