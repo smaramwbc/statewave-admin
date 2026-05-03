@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { purgeCachesAndUnregister } from './sw-register'
 
 interface SessionState {
   authenticated: boolean
@@ -114,6 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore — refresh below will reflect server state */
     }
+    // Belt-and-braces: the SW already bypasses /api/* so no privileged
+    // response is in cache, but on logout we still drop the SW caches
+    // and unregister so the next account starts on a clean shell.
+    await purgeCachesAndUnregister()
     await refresh()
   }, [refresh])
 

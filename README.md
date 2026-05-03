@@ -93,6 +93,66 @@ All variables are **server-side only**. None may use a `VITE_*` prefix — those
 - Vitest + Testing Library
 - Standalone Node HTTP server with **zero npm runtime dependencies**
 
+## PWA / installable app
+
+The admin is installable as a Progressive Web App. On Chrome/Edge/Brave/Android the browser surfaces a native install affordance plus a built-in dismissible "Install app" pill in the top bar; on iOS Safari the user can "Add to Home Screen" via the Share menu.
+
+### What ships
+
+- `public/manifest.webmanifest` — the install contract: name, scope, theme/background colors aligned to the Statewave brand, plus 192/512/maskable icons.
+- `public/icon-192.png`, `icon-512.png`, `icon-maskable-192.png`, `icon-maskable-512.png`, `apple-touch-icon.png` — generated from `public/favicon.svg` via ImageMagick. The maskable variants render the brand mark in the inner 60% safe-zone over a brand-dark background so Android's adaptive-icon mask doesn't crop it.
+- `public/sw.js` — hand-rolled, no Workbox. Auditable in one screen.
+- `public/offline.html` — a simple offline fallback served only when the network is unreachable.
+- `src/lib/sw-register.ts` — registers the SW after first paint, polls for updates hourly, exposes `applyPendingUpdate()` for the "Reload now" toast and `purgeCachesAndUnregister()` for logout.
+- `src/components/InstallPrompt.tsx` — non-intrusive header pill that renders only when the browser fires `beforeinstallprompt`; dismissals are remembered for 30 days.
+
+### Service worker caching policy
+
+The admin app is privileged. The SW is deliberately conservative.
+
+| Pattern | Strategy | Why |
+|---|---|---|
+| `/api/auth/*` | **Bypass** (never cached) | Login/logout/session must always reach the origin. |
+| `/api/proxy/*` | **Bypass** (never cached) | Every privileged backend call (subjects, memories, episodes, jobs, webhooks, dashboard, usage, tenants) goes through this — caching it would leak admin data. |
+| Cross-origin requests | **Bypass** | We never want the SW to mediate third-party traffic. |
+| Non-GET methods | **Bypass** | Mutations should never be cached. |
+| `Range` / partial requests | **Bypass** | Partial responses aren't safe to cache. |
+| `cache: no-store` requests | **Bypass** | Honors the application's explicit opt-out. |
+| `/index.html`, `/sw.js`, `/manifest.webmanifest`, `/offline.html` | Network-first with shell fallback | These must be reachable when offline but always fresh online. |
+| Vite content-hashed assets (`/assets/*`) | Stale-while-revalidate, opaque-rejected | The hash invalidates them on every release, so a stale cache hit is always a correct old build. |
+
+A successful logout calls `purgeCachesAndUnregister()` which wipes every SW cache and unregisters the worker — defense in depth on top of the per-request bypass list.
+
+### Security & privacy
+
+- **No tokens in cache.** Auth is HttpOnly session cookies; there is no Bearer token in the front-end and the SW never sees one.
+- **No subject / memory / episode data in cache.** Verified by `tests/sw-policy.test.ts`.
+- **No opaque (cross-origin no-cors) responses cached.** The SW only puts `response.type === 'basic'` results into the cache.
+- **Update flow is explicit.** A waiting SW does not auto-take-over — the user sees a Sonner toast inviting them to reload. This avoids losing in-flight admin work.
+- **Logout is destructive.** The shell cache is wiped and the SW unregisters so a different account starting on the same browser/device gets a clean shell.
+
+### Updating icons or manifest
+
+1. Edit `public/favicon.svg` (the source of truth).
+2. Regenerate the PNG sizes:
+   ```bash
+   cd public
+   magick -background none -density 600 favicon.svg -resize 192x192 icon-192.png
+   magick -background none -density 600 favicon.svg -resize 512x512 icon-512.png
+   magick -background none -density 600 favicon.svg -resize 180x180 apple-touch-icon.png
+   ```
+   For maskable variants, edit the inner `<g transform>` in the local maskable SVG so the artwork sits inside the 80% safe zone, then export 192/512.
+3. Update `public/manifest.webmanifest` if you renamed any file.
+4. Bump `CACHE_VERSION` in `public/sw.js` so existing installs roll over to the new icons on the next visit.
+5. Run `npm test` — `tests/pwa-manifest.test.ts` verifies every manifest icon exists on disk and the head wiring is intact.
+
+### Verifying installability
+
+- **Chrome DevTools → Application → Manifest** must show no errors.
+- **DevTools → Application → Service workers** must show `sw.js` registered and active.
+- **Lighthouse → PWA** runs against the production build via `npm run build && npm run start` and should show "Installable" green.
+- **iOS** behavior is verified manually — Add to Home Screen, confirm the icon, status-bar style, and that the offline page appears when airplane mode is toggled.
+
 ## Memory management
 
 All memory operations live on the **Subjects** page — never on the Dashboard. Open Subjects and use the **Import / Restore…** button (top right) for platform-level actions, or the **Clone** / **Export** controls in each subject row for subject-scoped actions.

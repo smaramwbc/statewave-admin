@@ -2,9 +2,58 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
     <title>Statewave Admin</title>
+    <meta name="description" content="Admin console for Statewave memory infrastructure" />
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+
+    <!-- PWA manifest. The runtime ServiceWorker is registered from
+         src/lib/sw-register.ts after React mounts; the manifest itself is
+         purely declarative. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Theme color drives the address bar / system chrome on Android and
+         desktop PWAs. The two media variants let the browser pick the
+         right one without a flash on theme change. The dark-first ordering
+         matches the admin shell's default theme. -->
+    <meta name="theme-color" content="#0a0f1a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+
+    <!-- iOS Safari does not honor the manifest's standalone display, so
+         install-to-home-screen behavior is opted into via these legacy
+         apple-* meta tags. The status bar style "black-translucent" keeps
+         the app shell flush under the notch with the nav drawing through. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Statewave" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Older Microsoft tiles. Cheap to include; we only need the brand
+         color since the icon falls back to the favicon. -->
+    <meta name="msapplication-TileColor" content="#0a0f1a" />
+    <meta name="msapplication-config" content="none" />
+
+    <!-- Resolve theme before paint so the first frame of the shell does
+         not flash light-on-dark or vice versa. Mirrors the matching script
+         in statewave-web. -->
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('statewave-admin-theme') || 'auto';
+          var resolved = mode;
+          if (mode === 'auto') {
+            resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', resolved);
+        } catch (_) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

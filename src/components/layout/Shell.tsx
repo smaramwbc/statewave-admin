@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { ThemeSwitcher } from '../ThemeSwitcher'
+import { InstallPrompt } from '../InstallPrompt'
 import { useAuth } from '../../lib/auth'
 
 export function Shell() {
@@ -18,6 +19,7 @@ export function Shell() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
         <header className="h-14 border-b border-theme-border bg-[var(--theme-card-bg)] flex items-center justify-end px-4 gap-3 shrink-0">
+          <InstallPrompt />
           <ThemeSwitcher />
           {!authDisabled && (
             <button

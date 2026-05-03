@@ -222,6 +222,33 @@ These compose with — they do not replace — the built-in gate.
 - [ ] `ADMIN_ALLOWED_EMAILS` is set when using the gateway path with multiple users.
 - [ ] TLS is terminated upstream (nginx, Caddy, ALB, Cloudflare, …).
 
+## PWA / service worker
+
+The admin ships an installable PWA. Behind a reverse proxy a few headers and routes are load-bearing — get them wrong and either updates stop reaching users or static assets are over-cached.
+
+**Routes that must be served from the SPA host (and reach the same Node server):**
+
+- `/sw.js` — the service worker. Must NOT be rewritten or proxied to a different origin.
+- `/manifest.webmanifest` — the install contract.
+- `/icon-192.png`, `/icon-512.png`, `/icon-maskable-192.png`, `/icon-maskable-512.png`, `/apple-touch-icon.png`, `/favicon.svg` — referenced from the manifest and the document head.
+- `/offline.html` — served only when the browser is offline.
+
+**Cache-Control headers the standalone Node server already sets correctly:**
+
+| Path | Cache-Control |
+|---|---|
+| `/sw.js` | `no-cache, no-store, must-revalidate` |
+| `/manifest.webmanifest` | `no-cache, no-store, must-revalidate` |
+| `/index.html`, `/`, `/offline.html` | `no-cache, no-store, must-revalidate` |
+| `/assets/*` (Vite content-hashed) | `public, max-age=31536000, immutable` |
+| Everything else | `public, max-age=300, must-revalidate` |
+
+If you front the admin with nginx / Caddy / a CDN, mirror these. **Never cache `sw.js`** — a CDN-cached SW will pin every user to whatever build was current when the CDN warmed.
+
+**Service worker scope.** `/sw.js` is served with `Service-Worker-Allowed: /` so the SW can intercept the entire origin. Reverse proxies that strip response headers must preserve this one.
+
+**`/api/*` is never cached by the SW.** The SW only touches static assets and the SPA shell. Auth and proxy traffic always reaches the origin live. This is verified by `tests/sw-policy.test.ts`.
+
 ---
 
 ## Local development
