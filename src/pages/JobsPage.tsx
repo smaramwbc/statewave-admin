@@ -12,6 +12,7 @@ import {
 } from '../components/ui'
 import { fetchCompileJobs, type CompileJobListItem } from '../lib/api'
 import { RefreshControl } from '../components/RefreshControl'
+import { PullToRefresh } from '../components/PullToRefresh'
 import { PageHeader } from '../components/ui'
 import { AlertTriangle } from 'lucide-react'
 
@@ -165,6 +166,89 @@ function JobRow({ job }: { job: CompileJobListItem }) {
   )
 }
 
+// ─── Mobile card ─────────────────────────────────────────────────────────────
+
+/**
+ * Card-shaped rendering of a compile job for narrow viewports. The
+ * desktop table compresses each row into one horizontal scan; on a
+ * phone the same row gets the vertical breathing space it needs so the
+ * job id, subject link, status badge, and stuck indicator can all
+ * coexist legibly.
+ */
+function JobCard({ job }: { job: CompileJobListItem }) {
+  const stuck = isStuck(job)
+  const [errorExpanded, setErrorExpanded] = useState(false)
+  // The whole card navigates to the subject detail (the most natural
+  // "drill in" destination from a job). The error toggle and the copy
+  // button sit on top of the card with their own click handlers and
+  // stopPropagation so they don't fire the navigation.
+  return (
+    <li className="relative">
+      <Link
+        to={`/subjects/${encodeURIComponent(job.subject_id)}`}
+        className="block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3 hover:border-accent/40 hover:bg-[var(--theme-surface-1)]/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none"
+        aria-label={`Open subject ${job.subject_id}`}
+      >
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-xs text-theme-primary truncate" title={job.job_id}>
+              {job.job_id}
+            </p>
+            <div className="mt-1 flex items-center gap-1.5 min-w-0">
+              <span className="text-[10px] uppercase tracking-wider text-theme-muted shrink-0">subject</span>
+              <span className="text-xs font-mono text-accent truncate" title={job.subject_id}>
+                {job.subject_id}
+              </span>
+            </div>
+          </div>
+          <StatusBadge status={job.status} stuck={stuck} />
+        </div>
+        <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+            <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
+            <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+              {job.memories_created > 0 ? job.memories_created : '—'}
+            </dd>
+          </div>
+          <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+            <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Duration</dt>
+            <dd className={`text-sm font-semibold tabular-nums ${stuck ? 'text-amber-400' : 'text-theme-primary'}`}>
+              {formatDuration(job.started_at, job.completed_at)}
+            </dd>
+          </div>
+          <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+            <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Created</dt>
+            <dd className="text-xs font-medium text-theme-secondary">
+              {formatRelativeTime(job.created_at)}
+            </dd>
+          </div>
+        </dl>
+      </Link>
+      {/* Out-of-link controls. Copy on the job id (top-right) and the
+          error toggle (bottom). Both live outside the Link so the card
+          navigation isn't accidentally fired by their clicks. */}
+      <div
+        className="absolute top-2.5 right-2.5 z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <CopyableMono value={job.job_id} labelForA11y="job ID" display="" />
+      </div>
+      {job.error && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setErrorExpanded((v) => !v)
+          }}
+          className="block w-full text-left text-[11px] text-red-400 hover:text-red-300 break-anywhere px-3 pb-3 -mt-1"
+          aria-expanded={errorExpanded}
+        >
+          {errorExpanded ? job.error : `${job.error.slice(0, 80)}${job.error.length > 80 ? '…' : ''}`}
+        </button>
+      )}
+    </li>
+  )
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function JobsPage() {
@@ -235,7 +319,8 @@ export function JobsPage() {
   const stuckCount = data?.jobs.filter(isStuck).length || 0
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <PullToRefresh onRefresh={loadData}>
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Compile Jobs"
         description="Monitor memory compilation jobs and identify failures"
@@ -310,9 +395,28 @@ export function JobsPage() {
         />
       )}
 
-      {/* Jobs Table */}
+      {/* Mobile cards */}
       {data && data.jobs.length > 0 && (
-        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
+        <ul className="md:hidden space-y-3" aria-label="Compile jobs">
+          {data.jobs.map((job) => (
+            <JobCard key={job.job_id} job={job} />
+          ))}
+          {totalPages > 1 && (
+            <li className="pt-2">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                totalItems={data.total}
+                onPageChange={(p) => updateParams({ page: p > 1 ? String(p) : undefined })}
+              />
+            </li>
+          )}
+        </ul>
+      )}
+
+      {/* Jobs Table (md+) */}
+      {data && data.jobs.length > 0 && (
+        <div className="hidden md:block rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
@@ -355,5 +459,6 @@ export function JobsPage() {
         </div>
       )}
     </div>
+    </PullToRefresh>
   )
 }

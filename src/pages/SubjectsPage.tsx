@@ -24,12 +24,90 @@ import {
 } from '../lib/api'
 import { MemoryActionsDrawer } from '../components/MemoryActionsDrawer'
 import { SubjectRowActions } from '../components/SubjectRowActions'
+import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
+import { PullToRefresh } from '../components/PullToRefresh'
 import { RefreshControl } from '../components/RefreshControl'
 import { Button, PageHeader } from '../components/ui'
 import { Upload, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
+
+/**
+ * Page-header action bar for SubjectsPage.
+ *
+ *   - md+ (≥768px): inline toolbar — "Updated HH:MM:SS" + Refresh
+ *     button + "Import / Restore…" + "Bulk delete…".
+ *   - <md (phones): only the timestamp ("Updated HH:MM:SS") plus a ⋮
+ *     kebab with Import / Bulk delete. The Refresh button is hidden
+ *     because pull-to-refresh is the gesture there.
+ *
+ * The kebab pattern matches what each subject row already uses for
+ * Clone / Export.
+ */
+function SubjectsHeaderActions({
+  lastFetched,
+  loading,
+  onRefresh,
+  onOpenImport,
+  onOpenBulkDelete,
+}: {
+  lastFetched: Date | null
+  loading: boolean
+  onRefresh: () => void
+  onOpenImport: () => void
+  onOpenBulkDelete: () => void
+}) {
+  const items: ActionMenuItem[] = [
+    {
+      label: 'Import / Restore…',
+      icon: <Upload className="h-3.5 w-3.5" aria-hidden="true" />,
+      onSelect: onOpenImport,
+      title: 'Restore Statewave Support, import demo agents, or import a .swmem archive',
+      desktop: (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onOpenImport}
+          leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
+          title="Restore Statewave Support, import demo agents, or import a .swmem archive"
+        >
+          Import / Restore…
+        </Button>
+      ),
+    },
+    {
+      label: 'Bulk delete…',
+      icon: <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />,
+      onSelect: onOpenBulkDelete,
+      destructive: true,
+      title: 'Filtered bulk delete with preview before commit',
+      desktop: (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={onOpenBulkDelete}
+          leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+          title="Filtered bulk delete with preview before commit"
+        >
+          Bulk delete…
+        </Button>
+      ),
+    },
+  ]
+
+  // Mobile mirrors the other pages (Overview, Jobs, Webhooks): the
+  // RefreshControl renders just its "Updated HH:MM:SS" timestamp on
+  // phones (the Refresh button is hidden by RefreshControl itself
+  // under md:). The kebab carries Import / Bulk delete; pull-to-
+  // refresh handles refresh.
+  return (
+    <div className="flex items-center gap-2">
+      <RefreshControl lastFetched={lastFetched} onRefresh={onRefresh} loading={loading} />
+      <ActionMenu items={items} label="Subjects page actions" />
+    </div>
+  )
+}
 
 const healthOptions = [
   { value: 'healthy', label: 'Healthy' },
@@ -140,46 +218,29 @@ export function SubjectsPage() {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <PullToRefresh onRefresh={loadData}>
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Subjects"
         description="Browse and inspect subject memory, episodes, and health"
         actions={
-          <>
-            <RefreshControl
-              lastFetched={lastFetched}
-              onRefresh={() => void loadData()}
-              loading={loading}
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowMemoryDrawer(true)}
-              leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
-              title="Restore Statewave Support, import demo agents, or import a .swmem archive"
-            >
-              Import / Restore…
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => {
-                setBulkPrefix('')
-                setBulkAgeDays('')
-                setBulkTenant(tenantId || '')
-                setBulkPreview(null)
-                setBulkResult(null)
-                setBulkError(null)
-                setBulkMatchAll(false)
-                setBulkMatchAllConfirm('')
-                setShowBulkModal(true)
-              }}
-              leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
-              title="Filtered bulk delete with preview before commit"
-            >
-              Bulk delete…
-            </Button>
-          </>
+          <SubjectsHeaderActions
+            lastFetched={lastFetched}
+            loading={loading}
+            onRefresh={() => void loadData()}
+            onOpenImport={() => setShowMemoryDrawer(true)}
+            onOpenBulkDelete={() => {
+              setBulkPrefix('')
+              setBulkAgeDays('')
+              setBulkTenant(tenantId || '')
+              setBulkPreview(null)
+              setBulkResult(null)
+              setBulkError(null)
+              setBulkMatchAll(false)
+              setBulkMatchAllConfirm('')
+              setShowBulkModal(true)
+            }}
+          />
         }
       />
 
@@ -287,11 +348,114 @@ export function SubjectsPage() {
 
       {data && data.subjects.length > 0 && (
         <>
-          {/* Table. The card uses overflow-x-auto so wide content can scroll
-              horizontally; the sticky <thead> sticks to the top of <main>'s
-              scroll viewport so column labels stay visible while the user
-              scrolls past row 30. */}
-          <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-x-auto">
+          {/* Mobile: stacked cards. A 7-column subject table is unreadable
+              at 320–430px even with horizontal scroll — long subject IDs
+              get clipped and the eye can't follow rows. Each subject
+              becomes its own card with the ID as a tappable title, the
+              health badge top-right, and a tight stats grid below. The
+              row-action menu still surfaces clone / delete / etc. */}
+          <ul className="md:hidden space-y-3" aria-label="Subjects">
+            {data.subjects.map((subject) => (
+              // Whole card is a tappable navigation surface to the
+              // subject detail page — much easier to hit on a phone
+              // than a small text link on the subject id. The kebab
+              // menu, copy button, and any other interactive control
+              // inside still work because they each call
+              // `e.stopPropagation()` on their own click handlers, but
+              // we also wrap them in a `data-no-link` container that
+              // intercepts clicks before they reach the outer Link.
+              <li key={subject.subject_id} className="relative">
+                <Link
+                  to={`/subjects/${encodeURIComponent(subject.subject_id)}`}
+                  className="block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3 hover:border-accent/40 hover:bg-[var(--theme-surface-1)]/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none"
+                  aria-label={`Open subject ${subject.subject_id}`}
+                >
+                  <div className="min-w-0 pr-12">
+                    {/* Subject id renders on a single line and scrolls
+                        horizontally on overflow. The pr-12 right pad
+                        reserves space for the absolutely-positioned
+                        copy + kebab cluster in the top-right corner of
+                        the card. The HealthBadge no longer lives at
+                        the top — it pairs with "Last activity" at the
+                        bottom-right instead, so the chip and the
+                        kebab never compete for the same corner. */}
+                    <span
+                      className="block text-theme-primary font-mono text-xs whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+                      title={subject.subject_id}
+                    >
+                      {subject.subject_id}
+                    </span>
+                    {subject.tenant_id && (
+                      <p
+                        className="mt-0.5 text-[10px] font-mono text-theme-muted whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+                        title={subject.tenant_id}
+                      >
+                        tenant: {subject.tenant_id}
+                      </p>
+                    )}
+                  </div>
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                      <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
+                      <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+                        {subject.memory_count.toLocaleString()}
+                      </dd>
+                    </div>
+                    <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                      <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Episodes</dt>
+                      <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+                        {subject.episode_count.toLocaleString()}
+                      </dd>
+                    </div>
+                    <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                      <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Open</dt>
+                      <dd className="text-sm font-semibold tabular-nums">
+                        {subject.open_sessions > 0 ? (
+                          <Badge variant="warning">{subject.open_sessions}</Badge>
+                        ) : (
+                          <span className="text-theme-muted">—</span>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                  {/* Footer row — last activity left, health chip right. */}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    {subject.last_episode_at ? (
+                      <p className="text-[10px] text-theme-muted truncate">
+                        Last activity: {new Date(subject.last_episode_at).toLocaleString()}
+                      </p>
+                    ) : (
+                      <span />
+                    )}
+                    <HealthBadge state={subject.health_state} score={subject.health_score} />
+                  </div>
+                </Link>
+                {/* Top-right cluster — copy + kebab only. The health
+                    badge moved down to the footer row so the chip and
+                    kebab never share the same corner pixels. */}
+                <div
+                  className="absolute top-2.5 right-2.5 flex items-center gap-1 z-10"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <CopyableMono
+                    value={subject.subject_id}
+                    labelForA11y="subject ID"
+                    display=""
+                  />
+                  <SubjectRowActions
+                    subjectId={subject.subject_id}
+                    onCloneComplete={loadData}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {/* md+ : original table. The card uses overflow-x-auto so wide
+              content can scroll horizontally; the sticky <thead> sticks to
+              the top of <main>'s scroll viewport so column labels stay
+              visible while the user scrolls past row 30. */}
+          <div className="hidden md:block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
                 <tr>
@@ -668,5 +832,6 @@ export function SubjectsPage() {
         onImportComplete={loadData}
       />
     </div>
+    </PullToRefresh>
   )
 }

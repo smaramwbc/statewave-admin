@@ -22,6 +22,13 @@ interface RefreshControlProps {
 }
 
 export function RefreshControl({ lastFetched, onRefresh, loading }: RefreshControlProps) {
+  // Mobile gets pull-to-refresh (the PullToRefresh wrapper on each page
+  // owns the gesture AND the spinning indicator), so the explicit
+  // Refresh button is removed on phones. We do NOT add a separate
+  // spinner here either — duplicating the indicator would put two
+  // (sometimes three, with the desktop loading state) refresh icons
+  // on screen at once during a pull. Just the timestamp is enough
+  // chrome on a phone.
   return (
     <div className="flex items-center gap-3">
       {lastFetched && (
@@ -37,6 +44,7 @@ export function RefreshControl({ lastFetched, onRefresh, loading }: RefreshContr
         leftIcon={<RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
         title="Refresh"
         aria-label="Refresh page data"
+        className="hidden md:inline-flex"
       >
         Refresh
       </Button>

@@ -141,7 +141,7 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
     // Check event types are displayed (using getAllBy since they appear in both filter and table)
@@ -154,12 +154,13 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
-    // Check status badges
-    expect(screen.getByText('delivered')).toBeInTheDocument()
-    expect(screen.getByText('dead_letter')).toBeInTheDocument()
+    // Check status badges. Each status appears in both the mobile card
+    // and the desktop table, so we assert "at least once".
+    expect(screen.getAllByText('delivered').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('dead_letter').length).toBeGreaterThan(0)
     expect(screen.getAllByText('pending').length).toBeGreaterThan(0)
   })
 
@@ -168,11 +169,12 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
-    // Check error is displayed (truncated)
-    expect(screen.getByText(/Connection refused/)).toBeInTheDocument()
+    // Check error is displayed (truncated). Mobile + desktop each
+    // surface their own truncation, so we check for any occurrence.
+    expect(screen.getAllByText(/Connection refused/).length).toBeGreaterThan(0)
   })
 
   it('shows RETRY indicator for pending events with attempts', async () => {
@@ -180,11 +182,12 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
-    // The third event (cccc3333) has status=pending and attempts=2
-    expect(screen.getByText('RETRY')).toBeInTheDocument()
+    // The third event (cccc3333) has status=pending and attempts=2.
+    // The badge is rendered in both surfaces.
+    expect(screen.getAllByText('RETRY').length).toBeGreaterThan(0)
   })
 
   it('shows problem warning banner when dead_letter events exist', async () => {
@@ -192,7 +195,7 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
     // Should show problem warning banner (1 dead_letter)
@@ -224,14 +227,15 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
-    // Check attempt counts are shown (1/5, 5/5, 2/5, 0/5)
-    expect(screen.getByText('1/5')).toBeInTheDocument()
-    expect(screen.getByText('5/5')).toBeInTheDocument()
-    expect(screen.getByText('2/5')).toBeInTheDocument()
-    expect(screen.getByText('0/5')).toBeInTheDocument()
+    // Check attempt counts are shown (1/5, 5/5, 2/5, 0/5). Each value
+    // appears in both surfaces.
+    expect(screen.getAllByText('1/5').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('5/5').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2/5').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('0/5').length).toBeGreaterThan(0)
   })
 
   it('displays HTTP status codes', async () => {
@@ -239,12 +243,12 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
-    // Check HTTP status codes
-    expect(screen.getByText('200')).toBeInTheDocument()
-    expect(screen.getByText('503')).toBeInTheDocument()
+    // Check HTTP status codes. Each appears in both surfaces.
+    expect(screen.getAllByText('200').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('503').length).toBeGreaterThan(0)
   })
 
   it('refresh button triggers reload', async () => {
@@ -252,7 +256,7 @@ describe('WebhooksPage', () => {
     renderWebhooksPage()
 
     await waitFor(() => {
-      expect(screen.getByText('aaaa1111…')).toBeInTheDocument()
+      expect(screen.getAllByText('aaaa1111…').length).toBeGreaterThan(0)
     })
 
     // Initial fetch
