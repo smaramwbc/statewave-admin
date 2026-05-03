@@ -25,11 +25,85 @@ import {
 import { MemoryActionsDrawer } from '../components/MemoryActionsDrawer'
 import { SubjectRowActions } from '../components/SubjectRowActions'
 import { RefreshControl } from '../components/RefreshControl'
+import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
+import { PullToRefresh } from '../components/PullToRefresh'
 import { Button, PageHeader } from '../components/ui'
 import { Upload, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
+
+/**
+ * Page-header action bar for SubjectsPage.
+ *
+ *   - md+ (≥768px): full inline toolbar — Updated timestamp + Refresh
+ *     button + "Import / Restore…" + "Bulk delete…".
+ *   - <md (phones): a single ⋮ kebab dropdown surfaces Import / Restore
+ *     and Bulk delete. Refresh is omitted on phones because the page is
+ *     wrapped in PullToRefresh; the in-flight state shows up as a small
+ *     spinning icon inside RefreshControl on the timestamp.
+ *
+ * The kebab pattern matches what each subject row already uses for
+ * Clone / Export, so the gesture is consistent across the page.
+ */
+function SubjectsHeaderActions({
+  lastFetched,
+  loading,
+  onRefresh,
+  onOpenImport,
+  onOpenBulkDelete,
+}: {
+  lastFetched: Date | null
+  loading: boolean
+  onRefresh: () => void
+  onOpenImport: () => void
+  onOpenBulkDelete: () => void
+}) {
+  const items: ActionMenuItem[] = [
+    {
+      label: 'Import / Restore…',
+      icon: <Upload className="h-3.5 w-3.5" aria-hidden="true" />,
+      onSelect: onOpenImport,
+      title: 'Restore Statewave Support, import demo agents, or import a .swmem archive',
+      // Desktop renders the existing inline cluster in front of this
+      // item (RefreshControl + Import button). Mobile uses the kebab.
+      desktop: (
+        <div className="flex items-center gap-2">
+          <RefreshControl lastFetched={lastFetched} onRefresh={onRefresh} loading={loading} />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onOpenImport}
+            leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
+            title="Restore Statewave Support, import demo agents, or import a .swmem archive"
+          >
+            Import / Restore…
+          </Button>
+        </div>
+      ),
+    },
+    {
+      label: 'Bulk delete…',
+      icon: <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />,
+      onSelect: onOpenBulkDelete,
+      destructive: true,
+      title: 'Filtered bulk delete with preview before commit',
+      desktop: (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={onOpenBulkDelete}
+          leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+          title="Filtered bulk delete with preview before commit"
+        >
+          Bulk delete…
+        </Button>
+      ),
+    },
+  ]
+
+  return <ActionMenu items={items} label="Subjects page actions" />
+}
 
 const healthOptions = [
   { value: 'healthy', label: 'Healthy' },
@@ -140,46 +214,29 @@ export function SubjectsPage() {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
 
   return (
+    <PullToRefresh onRefresh={loadData}>
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Subjects"
         description="Browse and inspect subject memory, episodes, and health"
         actions={
-          <>
-            <RefreshControl
-              lastFetched={lastFetched}
-              onRefresh={() => void loadData()}
-              loading={loading}
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowMemoryDrawer(true)}
-              leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}
-              title="Restore Statewave Support, import demo agents, or import a .swmem archive"
-            >
-              Import / Restore…
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => {
-                setBulkPrefix('')
-                setBulkAgeDays('')
-                setBulkTenant(tenantId || '')
-                setBulkPreview(null)
-                setBulkResult(null)
-                setBulkError(null)
-                setBulkMatchAll(false)
-                setBulkMatchAllConfirm('')
-                setShowBulkModal(true)
-              }}
-              leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
-              title="Filtered bulk delete with preview before commit"
-            >
-              Bulk delete…
-            </Button>
-          </>
+          <SubjectsHeaderActions
+            lastFetched={lastFetched}
+            loading={loading}
+            onRefresh={() => void loadData()}
+            onOpenImport={() => setShowMemoryDrawer(true)}
+            onOpenBulkDelete={() => {
+              setBulkPrefix('')
+              setBulkAgeDays('')
+              setBulkTenant(tenantId || '')
+              setBulkPreview(null)
+              setBulkResult(null)
+              setBulkError(null)
+              setBulkMatchAll(false)
+              setBulkMatchAllConfirm('')
+              setShowBulkModal(true)
+            }}
+          />
         }
       />
 
@@ -287,11 +344,87 @@ export function SubjectsPage() {
 
       {data && data.subjects.length > 0 && (
         <>
-          {/* Table. The card uses overflow-x-auto so wide content can scroll
-              horizontally; the sticky <thead> sticks to the top of <main>'s
-              scroll viewport so column labels stay visible while the user
-              scrolls past row 30. */}
-          <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-x-auto">
+          {/* Mobile: stacked cards. A 7-column subject table is unreadable
+              at 320–430px even with horizontal scroll — long subject IDs
+              get clipped and the eye can't follow rows. Each subject
+              becomes its own card with the ID as a tappable title, the
+              health badge top-right, and a tight stats grid below. The
+              row-action menu still surfaces clone / delete / etc. */}
+          <ul className="md:hidden space-y-3" aria-label="Subjects">
+            {data.subjects.map((subject) => (
+              <li
+                key={subject.subject_id}
+                className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3"
+              >
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Link
+                        to={`/subjects/${encodeURIComponent(subject.subject_id)}`}
+                        className="text-theme-primary hover:text-accent font-mono text-xs truncate transition-colors"
+                        title={subject.subject_id}
+                      >
+                        {subject.subject_id}
+                      </Link>
+                      <CopyableMono
+                        value={subject.subject_id}
+                        labelForA11y="subject ID"
+                        className="shrink-0"
+                        display=""
+                      />
+                    </div>
+                    {subject.tenant_id && (
+                      <p className="mt-0.5 text-[10px] font-mono text-theme-muted truncate" title={subject.tenant_id}>
+                        tenant: {subject.tenant_id}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <HealthBadge state={subject.health_state} score={subject.health_score} />
+                    <SubjectRowActions
+                      subjectId={subject.subject_id}
+                      onCloneComplete={loadData}
+                    />
+                  </div>
+                </div>
+                <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                    <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
+                    <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+                      {subject.memory_count.toLocaleString()}
+                    </dd>
+                  </div>
+                  <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                    <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Episodes</dt>
+                    <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+                      {subject.episode_count.toLocaleString()}
+                    </dd>
+                  </div>
+                  <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+                    <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Open</dt>
+                    <dd className="text-sm font-semibold tabular-nums">
+                      {subject.open_sessions > 0 ? (
+                        <Badge variant="warning">{subject.open_sessions}</Badge>
+                      ) : (
+                        <span className="text-theme-muted">—</span>
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+                {subject.last_episode_at && (
+                  <p className="mt-2 text-[10px] text-theme-muted">
+                    Last activity: {new Date(subject.last_episode_at).toLocaleString()}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {/* md+ : original table. The card uses overflow-x-auto so wide
+              content can scroll horizontally; the sticky <thead> sticks to
+              the top of <main>'s scroll viewport so column labels stay
+              visible while the user scrolls past row 30. */}
+          <div className="hidden md:block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
                 <tr>
@@ -668,5 +801,6 @@ export function SubjectsPage() {
         onImportComplete={loadData}
       />
     </div>
+    </PullToRefresh>
   )
 }

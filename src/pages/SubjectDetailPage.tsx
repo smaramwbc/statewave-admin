@@ -209,7 +209,19 @@ export function SubjectDetailPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-      {/* Header */}
+      {/* Header.
+          Mobile layout: back-link → title row → meta line → action row.
+          The previous version put the (often long) subject id and the
+          Delete button in the same flex-row with `break-all` on the id;
+          at 320–390px the id collapsed to a single character per line
+          while the Delete button stayed pinned right. We fix that by:
+            * `break-words` (whole-token wrapping) instead of `break-all`
+              (character-level) so the id wraps at underscores / dashes
+              rather than mid-token,
+            * truncating to 1 line on phones with the full id available
+              via `title` and the dedicated copy button,
+            * dropping the destructive button to its own row on phones
+              so the title gets the full width. */}
       <div className="mb-6">
         <Link
           to="/subjects"
@@ -217,36 +229,40 @@ export function SubjectDetailPage() {
         >
           ← Back to Subjects
         </Link>
-        <div className="flex items-center gap-4">
-          <h1
-            className="text-lg font-semibold text-theme-primary font-mono break-all"
-            title={detail.subject_id}
-          >
-            {detail.subject_id}
-          </h1>
-          <CopyableMono
-            value={detail.subject_id}
-            labelForA11y="subject ID"
-            display=""
-            className="shrink-0"
-          />
-          <HealthBadge state={detail.health?.state ?? null} score={detail.health?.score} />
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => {
-              setDeleteConfirmInput('')
-              setDeleteError(null)
-              setShowDeleteModal(true)
-            }}
-            leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
-            className="ml-auto"
-            title="Permanently delete all episodes and memories for this subject"
-          >
-            Delete subject
-          </Button>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <h1
+              className="text-base sm:text-lg font-semibold text-theme-primary font-mono truncate"
+              title={detail.subject_id}
+            >
+              {detail.subject_id}
+            </h1>
+            <CopyableMono
+              value={detail.subject_id}
+              labelForA11y="subject ID"
+              display=""
+              className="shrink-0"
+            />
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <HealthBadge state={detail.health?.state ?? null} score={detail.health?.score} />
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setDeleteConfirmInput('')
+                setDeleteError(null)
+                setShowDeleteModal(true)
+              }}
+              leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+              className="ml-auto sm:ml-0"
+              title="Permanently delete all episodes and memories for this subject"
+            >
+              Delete subject
+            </Button>
+          </div>
         </div>
-        <p className="text-sm text-theme-muted mt-1">
+        <p className="text-xs sm:text-sm text-theme-muted mt-2 sm:mt-1 break-anywhere">
           {detail.tenant_id && (
             <>
               Tenant: <span className="font-mono">{detail.tenant_id}</span> ·{' '}

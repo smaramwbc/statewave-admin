@@ -12,6 +12,7 @@ import {
 } from '../components/ui'
 import { fetchWebhookEvents, type WebhookEventListItem } from '../lib/api'
 import { RefreshControl } from '../components/RefreshControl'
+import { PullToRefresh } from '../components/PullToRefresh'
 import { PageHeader } from '../components/ui'
 import { AlertTriangle } from 'lucide-react'
 
@@ -171,6 +172,77 @@ function EventRow({ event }: { event: WebhookEventListItem }) {
   )
 }
 
+// ─── Mobile card ─────────────────────────────────────────────────────────────
+
+/**
+ * Card-shaped webhook event for narrow viewports. Same trade-off as
+ * JobCard: the 8-column desktop table doesn't fit on a phone, so each
+ * row gets vertical room to expose the event type, status, attempts,
+ * HTTP code, and the (often long) error message.
+ */
+function EventCard({ event }: { event: WebhookEventListItem }) {
+  const [errorExpanded, setErrorExpanded] = useState(false)
+  const httpColor = event.http_status
+    ? event.http_status >= 400
+      ? 'text-red-400'
+      : event.http_status >= 200 && event.http_status < 300
+        ? 'text-emerald-400'
+        : 'text-theme-muted'
+    : 'text-theme-muted'
+  return (
+    <li className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <code className="text-xs font-mono text-accent break-anywhere">{event.event}</code>
+          <div className="mt-1">
+            <CopyableMono
+              value={event.id}
+              display={`${event.id.slice(0, 12)}…`}
+              labelForA11y="webhook event ID"
+              maxWidthClass="max-w-full"
+            />
+          </div>
+        </div>
+        <StatusBadge event={event} />
+      </div>
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Attempts</dt>
+          <dd className={`text-sm font-semibold tabular-nums ${event.attempts >= event.max_attempts ? 'text-red-400' : 'text-theme-primary'}`}>
+            {event.attempts}/{event.max_attempts}
+          </dd>
+        </div>
+        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">HTTP</dt>
+          <dd className={`text-sm font-semibold tabular-nums ${httpColor}`}>
+            {event.http_status ?? '—'}
+          </dd>
+        </div>
+        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Created</dt>
+          <dd className="text-xs font-medium text-theme-secondary">
+            {formatRelativeTime(event.created_at)}
+          </dd>
+        </div>
+      </dl>
+      {event.next_attempt_at && (
+        <p className="mt-2 text-[10px] text-theme-muted">
+          Next retry: {formatRelativeTime(event.next_attempt_at)}
+        </p>
+      )}
+      {event.last_error && (
+        <button
+          onClick={() => setErrorExpanded((v) => !v)}
+          className="mt-2 w-full text-left text-[11px] text-red-400 hover:text-red-300 break-anywhere"
+          aria-expanded={errorExpanded}
+        >
+          {errorExpanded ? event.last_error : `${event.last_error.slice(0, 80)}${event.last_error.length > 80 ? '…' : ''}`}
+        </button>
+      )}
+    </li>
+  )
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function WebhooksPage() {
@@ -245,6 +317,7 @@ export function WebhooksPage() {
   const problemCount = deadLetterCount + stalledCount
 
   return (
+    <PullToRefresh onRefresh={loadData}>
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Webhook Events"
@@ -330,9 +403,28 @@ export function WebhooksPage() {
         />
       )}
 
-      {/* Events Table */}
+      {/* Mobile cards */}
       {data && data.events.length > 0 && (
-        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
+        <ul className="md:hidden space-y-3" aria-label="Webhook events">
+          {data.events.map((event) => (
+            <EventCard key={event.id} event={event} />
+          ))}
+          {totalPages > 1 && (
+            <li className="pt-2">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                totalItems={data.total}
+                onPageChange={(p) => updateParams({ page: p > 1 ? String(p) : undefined })}
+              />
+            </li>
+          )}
+        </ul>
+      )}
+
+      {/* Events Table (md+) */}
+      {data && data.events.length > 0 && (
+        <div className="hidden md:block rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
@@ -376,5 +468,6 @@ export function WebhooksPage() {
         </div>
       )}
     </div>
+    </PullToRefresh>
   )
 }

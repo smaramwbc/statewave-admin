@@ -12,6 +12,7 @@ import {
 } from '../components/ui'
 import { fetchCompileJobs, type CompileJobListItem } from '../lib/api'
 import { RefreshControl } from '../components/RefreshControl'
+import { PullToRefresh } from '../components/PullToRefresh'
 import { PageHeader } from '../components/ui'
 import { AlertTriangle } from 'lucide-react'
 
@@ -165,6 +166,69 @@ function JobRow({ job }: { job: CompileJobListItem }) {
   )
 }
 
+// ─── Mobile card ─────────────────────────────────────────────────────────────
+
+/**
+ * Card-shaped rendering of a compile job for narrow viewports. The
+ * desktop table compresses each row into one horizontal scan; on a
+ * phone the same row gets the vertical breathing space it needs so the
+ * job id, subject link, status badge, and stuck indicator can all
+ * coexist legibly.
+ */
+function JobCard({ job }: { job: CompileJobListItem }) {
+  const stuck = isStuck(job)
+  const [errorExpanded, setErrorExpanded] = useState(false)
+  return (
+    <li className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <CopyableMono value={job.job_id} labelForA11y="job ID" maxWidthClass="max-w-full" />
+          <div className="mt-1 flex items-center gap-1.5 min-w-0">
+            <span className="text-[10px] uppercase tracking-wider text-theme-muted shrink-0">subject</span>
+            <Link
+              to={`/subjects/${encodeURIComponent(job.subject_id)}`}
+              className="text-xs font-mono text-accent hover:text-accent-light hover:underline underline-offset-2 truncate"
+              title={job.subject_id}
+            >
+              {job.subject_id}
+            </Link>
+          </div>
+        </div>
+        <StatusBadge status={job.status} stuck={stuck} />
+      </div>
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Memories</dt>
+          <dd className="text-sm font-semibold text-theme-primary tabular-nums">
+            {job.memories_created > 0 ? job.memories_created : '—'}
+          </dd>
+        </div>
+        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Duration</dt>
+          <dd className={`text-sm font-semibold tabular-nums ${stuck ? 'text-amber-400' : 'text-theme-primary'}`}>
+            {formatDuration(job.started_at, job.completed_at)}
+          </dd>
+        </div>
+        <div className="rounded-md bg-[var(--theme-surface-1)] py-2">
+          <dt className="text-[10px] uppercase tracking-wider text-theme-muted">Created</dt>
+          <dd className="text-xs font-medium text-theme-secondary">
+            {formatRelativeTime(job.created_at)}
+          </dd>
+        </div>
+      </dl>
+      {job.error && (
+        <button
+          onClick={() => setErrorExpanded((v) => !v)}
+          className="mt-2 w-full text-left text-[11px] text-red-400 hover:text-red-300 break-anywhere"
+          aria-expanded={errorExpanded}
+        >
+          {errorExpanded ? job.error : `${job.error.slice(0, 80)}${job.error.length > 80 ? '…' : ''}`}
+        </button>
+      )}
+    </li>
+  )
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function JobsPage() {
@@ -235,6 +299,7 @@ export function JobsPage() {
   const stuckCount = data?.jobs.filter(isStuck).length || 0
 
   return (
+    <PullToRefresh onRefresh={loadData}>
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <PageHeader
         title="Compile Jobs"
@@ -310,9 +375,28 @@ export function JobsPage() {
         />
       )}
 
-      {/* Jobs Table */}
+      {/* Mobile cards */}
       {data && data.jobs.length > 0 && (
-        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
+        <ul className="md:hidden space-y-3" aria-label="Compile jobs">
+          {data.jobs.map((job) => (
+            <JobCard key={job.job_id} job={job} />
+          ))}
+          {totalPages > 1 && (
+            <li className="pt-2">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                totalItems={data.total}
+                onPageChange={(p) => updateParams({ page: p > 1 ? String(p) : undefined })}
+              />
+            </li>
+          )}
+        </ul>
+      )}
+
+      {/* Jobs Table (md+) */}
+      {data && data.jobs.length > 0 && (
+        <div className="hidden md:block rounded-xl border border-theme-border bg-[var(--theme-card-bg)]">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
@@ -355,5 +439,6 @@ export function JobsPage() {
         </div>
       )}
     </div>
+    </PullToRefresh>
   )
 }

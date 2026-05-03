@@ -12,6 +12,7 @@ import {
   StatSkeleton,
   Skeleton,
 } from '../components/ui'
+import { PullToRefresh } from '../components/PullToRefresh'
 import { fetchDashboard, fetchUsage, type DashboardData, type UsageData, type UsageWindow } from '../lib/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -61,18 +62,19 @@ export function DashboardPage() {
   }, [fetchData])
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-      <PageHeader
-        title="Overview"
-        description="System health and usage summary"
-        actions={
-          <RefreshControl
-            lastFetched={lastFetched}
-            onRefresh={fetchData}
-            loading={loading}
-          />
-        }
-      />
+    <PullToRefresh onRefresh={fetchData}>
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+        <PageHeader
+          title="Overview"
+          description="System health and usage summary"
+          actions={
+            <RefreshControl
+              lastFetched={lastFetched}
+              onRefresh={fetchData}
+              loading={loading}
+            />
+          }
+        />
 
       {error && !data && (
         <ErrorState
@@ -348,6 +350,7 @@ export function DashboardPage() {
           </p>
         </div>
       </Modal>
-    </div>
+      </div>
+    </PullToRefresh>
   )
 }
