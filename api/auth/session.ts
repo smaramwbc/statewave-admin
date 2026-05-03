@@ -6,7 +6,7 @@
  * (`npm start`) and the Vite dev plugin. Same handler, three hosts.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { handleSession } from '../../server/handlers'
+import { handleSession } from '../../server/handlers.js'
 
 export default async function (req: IncomingMessage, res: ServerResponse) {
   return handleSession(req, res)
