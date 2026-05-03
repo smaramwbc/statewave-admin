@@ -5,7 +5,7 @@
  * `server/handlers.ts` (which delegates to `server/auth.ts` + `server/proxy.ts`).
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { handleProxy } from '../server/handlers'
+import { handleProxy } from '../server/handlers.js'
 
 export default async function (req: IncomingMessage, res: ServerResponse) {
   return handleProxy(req, res)
