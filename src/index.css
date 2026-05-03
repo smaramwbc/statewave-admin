@@ -52,6 +52,7 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -61,6 +62,30 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Body scroll lock — Sidebar's mobile drawer flips data-scroll-lock on
+ * <html>; we reflect that into actual style here so the lock survives
+ * unmounts cleanly and iOS Safari momentum-scroll doesn't escape it. */
+html[data-scroll-lock="true"],
+html[data-scroll-lock="true"] body {
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+/* Notch / Dynamic Island / home-indicator safe areas. The PWA runs
+ * fullscreen on iOS once installed, so the shell needs to opt into
+ * inset-aware padding. */
+@layer utilities {
+  .pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
+  .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+  .pl-safe { padding-left: max(env(safe-area-inset-left), 0px); }
+  .pr-safe { padding-right: max(env(safe-area-inset-right), 0px); }
+  .break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 }
 
 ::selection {

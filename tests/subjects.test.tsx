@@ -66,13 +66,17 @@ describe('SubjectsPage', () => {
 
     renderWithProviders(<SubjectsPage />)
 
+    // The page now renders BOTH the mobile-card list and the md+
+    // table simultaneously (each gated by CSS visibility), so subject
+    // ids appear twice in the DOM. We assert "at least once" rather
+    // than "exactly once" — that's what the responsive design promises.
     await waitFor(() => {
-      expect(screen.getByText('user_123')).toBeInTheDocument()
+      expect(screen.getAllByText('user_123').length).toBeGreaterThan(0)
     })
 
-    expect(screen.getByText('user_456')).toBeInTheDocument()
-    expect(screen.getByText('healthy')).toBeInTheDocument()
-    expect(screen.getByText('watch')).toBeInTheDocument()
+    expect(screen.getAllByText('user_456').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('healthy').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('watch').length).toBeGreaterThan(0)
   })
 
   it('renders empty state when no subjects', async () => {

@@ -25,18 +25,23 @@ export function MemoryDetailModal({
   if (!memory) return null
 
   return (
-    <Modal open={!!memory} onClose={onClose} title="Memory Details">
+    <Modal
+      open={!!memory}
+      onClose={onClose}
+      title="Memory Details"
+      // The "Viewing from" navigation context used to render as an
+      // awkward boxed line right under the title. We promote it into
+      // the modal's `description` slot so it renders inline with the
+      // header where breadcrumb / context typically lives — same
+      // surface a Mac sheet uses for "From: …". This keeps the body
+      // free of meta chrome and the header's information density
+      // honest.
+      description={fromContext ? `Viewing from ${fromContext}` : undefined}
+    >
       <div className="space-y-5">
-        {/* Navigation context */}
-        {fromContext && (
-          <div className="text-[10px] text-theme-muted bg-[var(--theme-surface-1)] px-2 py-1 rounded -mt-2">
-            Viewing from: <span className="text-theme-secondary">{fromContext}</span>
-          </div>
-        )}
-
         {/* Header */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant={memory.status === 'active' ? 'success' : 'muted'}>
               {memory.kind}
             </Badge>
@@ -44,7 +49,7 @@ export function MemoryDetailModal({
               <Badge variant="warning">superseded</Badge>
             )}
           </div>
-          <span className="text-xs text-theme-muted">
+          <span className="text-xs text-theme-muted whitespace-nowrap">
             Confidence: {(memory.confidence * 100).toFixed(0)}%
           </span>
         </div>

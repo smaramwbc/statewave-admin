@@ -130,12 +130,12 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
     // Check subjects are displayed
-    expect(screen.getByText('user_123')).toBeInTheDocument()
-    expect(screen.getByText('user_456')).toBeInTheDocument()
+    expect(screen.getAllByText('user_123').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('user_456').length).toBeGreaterThan(0)
   })
 
   it('renders status badges correctly', async () => {
@@ -143,14 +143,15 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
-    // Check status badges
-    expect(screen.getByText('completed')).toBeInTheDocument()
-    expect(screen.getByText('failed')).toBeInTheDocument()
-    expect(screen.getByText('running')).toBeInTheDocument()
-    expect(screen.getByText('pending')).toBeInTheDocument()
+    // Check status badges. Each appears once in the desktop table row
+    // AND once in the mobile card, so we use getAllByText.
+    expect(screen.getAllByText('completed').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('failed').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('running').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('pending').length).toBeGreaterThan(0)
   })
 
   it('shows error message for failed jobs', async () => {
@@ -158,11 +159,11 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
-    // Check error is displayed (truncated)
-    expect(screen.getByText(/LLM API timeout/)).toBeInTheDocument()
+    // Check error is displayed (truncated). Appears in both surfaces.
+    expect(screen.getAllByText(/LLM API timeout/).length).toBeGreaterThan(0)
   })
 
   it('shows stuck indicator for long-running jobs', async () => {
@@ -170,12 +171,12 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
     // The running job started 20 minutes ago (at 09:50:01, current time is 10:10:00)
-    // Should show STUCK indicator
-    expect(screen.getByText('STUCK')).toBeInTheDocument()
+    // Should show STUCK indicator. Appears in both surfaces.
+    expect(screen.getAllByText('STUCK').length).toBeGreaterThan(0)
   })
 
   it('shows stuck warning banner when stuck jobs exist', async () => {
@@ -183,10 +184,11 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
-    // Should show stuck warning banner
+    // Should show stuck warning banner (single occurrence at the top of
+    // the page, NOT one per surface).
     expect(screen.getByText(/1 stuck job/)).toBeInTheDocument()
   })
 
@@ -217,11 +219,12 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('user_123')).toBeInTheDocument()
+      expect(screen.getAllByText('user_123').length).toBeGreaterThan(0)
     })
 
-    // Subject should be a link
-    const subjectLink = screen.getByText('user_123')
+    // Subject appears in both the mobile card and the desktop table; we
+    // grab the first hit and assert its <a> ancestor's href.
+    const subjectLink = screen.getAllByText('user_123')[0]
     expect(subjectLink.closest('a')).toHaveAttribute('href', '/subjects/user_123')
   })
 
@@ -230,7 +233,7 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
     // The status filter should be present
@@ -243,7 +246,7 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
     // Initial fetch
@@ -263,11 +266,12 @@ describe('JobsPage', () => {
     renderJobsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('abc12345')).toBeInTheDocument()
+      expect(screen.getAllByText('abc12345').length).toBeGreaterThan(0)
     })
 
-    // The completed job created 5 memories
-    expect(screen.getByText('5')).toBeInTheDocument()
+    // The completed job created 5 memories; same value is shown in
+    // both the mobile card and the desktop table.
+    expect(screen.getAllByText('5').length).toBeGreaterThan(0)
   })
 })
 
