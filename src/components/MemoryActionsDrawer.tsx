@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import {
   CheckCircle2,
   XCircle,
@@ -58,120 +58,137 @@ export function MemoryActionsDrawer({
   onClose,
   onImportComplete,
 }: MemoryActionsDrawerProps) {
-  const [packs, setPacks] = useState<StarterPack[]>([])
-  const [packsLoading, setPacksLoading] = useState(false)
-  const [packsError, setPacksError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<TabId>('support')
-
-  const loadPacks = useCallback(async () => {
-    setPacksLoading(true)
-    setPacksError(null)
-    try {
-      setPacks(await listStarterPacks())
-    } catch (e) {
-      setPacksError(e instanceof Error ? e.message : 'Failed to load starter packs.')
-    } finally {
-      setPacksLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (open) {
-      void loadPacks()
-      // Reset to the most-likely-needed tab on every open. Most operators
-      // hit this drawer to restore Statewave Support (the original 404 use
-      // case), so that's the default.
-      setActiveTab('support')
-    }
-  }, [open, loadPacks])
-
-  const supportPack = packs.find((p) => p.kind === 'support_docs')
-  const demoPacks = packs.filter((p) => p.kind === 'demo_agent')
-
+  // The body is split into a child component so it mounts on `open=true`
+  // and unmounts on `open=false`. That gives us two release-grade
+  // properties for free, without any setState-in-effect:
+  //   * `activeTab` resets to "support" on every open via natural
+  //     state initialisation (no reset effect, no key prop hack)
+  //   * the starter-pack fetch is a pure mount effect — the canonical
+  //     useEffect data-fetch pattern — instead of a prop-driven side
+  //     effect that has to re-run guarded by `if (open)`
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Import / Restore memory"
-      description="Restore Statewave Support, import a starter agent, or open an encrypted .swmem archive. Visitor memories are never touched."
+      description="Restore Statewave Support, import a starter agent, or open an encrypted .swmem archive. The .swmem passphrase is never sent to Statewave; archives whose passphrases are lost cannot be recovered. Visitor memories are never touched."
       size="lg"
     >
-      <div className="space-y-5">
-        {packsError && (
-          <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-400">
-            {packsError}
-          </div>
-        )}
-
-        <Tabs
-          tabs={[
-            { id: 'support', label: 'Statewave Support' },
-            { id: 'agents', label: 'Demo agents', count: demoPacks.length },
-            { id: 'archive', label: 'Memory archive' },
-          ]}
-          activeTab={activeTab}
-          onTabChange={(id) => setActiveTab(id as TabId)}
-        />
-
-        {activeTab === 'support' && (
-          <TabIntro
-            icon={LifeBuoy}
-            blurb={
-              <>
-                Restores the shared{' '}
-                <span className="font-mono text-theme-secondary">statewave-support-docs</span>{' '}
-                memory used for support-agent grounding. This does not reset
-                visitor memories.
-              </>
-            }
-          >
-            <SupportRestoreCard
-              pack={supportPack}
-              loading={packsLoading}
-              onComplete={onImportComplete}
-            />
-          </TabIntro>
-        )}
-
-        {activeTab === 'agents' && (
-          <TabIntro
-            icon={Bot}
-            blurb="Sample starter memories for developer onboarding. Each import creates a new tenant-owned subject you can edit, reset, or extend."
-          >
-            {packsLoading && demoPacks.length === 0 ? (
-              <p className="text-xs text-theme-muted">Loading starter packs…</p>
-            ) : (
-              <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] divide-y divide-theme-border/60">
-                {demoPacks.map((p) => (
-                  <DemoAgentRow key={p.pack_id} pack={p} onComplete={onImportComplete} />
-                ))}
-              </div>
-            )}
-          </TabIntro>
-        )}
-
-        {activeTab === 'archive' && (
-          <TabIntro
-            icon={FileLock2}
-            blurb={
-              <>
-                Upload a <code className="font-mono">.swmem</code> file.
-                Decryption happens entirely in your browser — your passphrase
-                is never sent to the server.
-              </>
-            }
-          >
-            <SwmemImporter onComplete={onImportComplete} />
-          </TabIntro>
-        )}
-
-        <div className="text-[10px] text-theme-muted leading-relaxed border-t border-theme-border/50 pt-3">
-          Memory actions never reset visitor memories. Per-visitor{' '}
-          <span className="font-mono">demo_web_*__statewave-support</span>{' '}
-          subjects are untouched by every action above.
-        </div>
-      </div>
+      <DrawerBody onImportComplete={onImportComplete} />
     </Modal>
+  )
+}
+
+function DrawerBody({ onImportComplete }: { onImportComplete?: () => void }) {
+  // `packsLoading` initialises to `true` because the fetch always runs on
+  // mount — so we never need a synchronous `setPacksLoading(true)` call
+  // inside the effect (which is what the lint rule rightly objects to).
+  // All result-side state changes happen inside promise callbacks, which
+  // run after the effect body has returned.
+  const [packs, setPacks] = useState<StarterPack[]>([])
+  const [packsLoading, setPacksLoading] = useState(true)
+  const [packsError, setPacksError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<TabId>('support')
+
+  useEffect(() => {
+    let cancelled = false
+    listStarterPacks()
+      .then((result) => {
+        if (!cancelled) setPacks(result)
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setPacksError(e instanceof Error ? e.message : 'Failed to load starter packs.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPacksLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const supportPack = packs.find((p) => p.kind === 'support_docs')
+  const demoPacks = packs.filter((p) => p.kind === 'demo_agent')
+
+  return (
+    <div className="space-y-5">
+      {packsError && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-400">
+          {packsError}
+        </div>
+      )}
+
+      <Tabs
+        tabs={[
+          { id: 'support', label: 'Statewave Support' },
+          { id: 'agents', label: 'Demo agents', count: demoPacks.length },
+          { id: 'archive', label: 'Encrypted memory archive' },
+        ]}
+        activeTab={activeTab}
+        onTabChange={(id) => setActiveTab(id as TabId)}
+      />
+
+      {activeTab === 'support' && (
+        <TabIntro
+          icon={LifeBuoy}
+          blurb={
+            <>
+              Restores the shared{' '}
+              <span className="font-mono text-theme-secondary">statewave-support-docs</span>{' '}
+              memory used for support-agent grounding. This does not reset
+              visitor memories.
+            </>
+          }
+        >
+          <SupportRestoreCard
+            pack={supportPack}
+            loading={packsLoading}
+            onComplete={onImportComplete}
+          />
+        </TabIntro>
+      )}
+
+      {activeTab === 'agents' && (
+        <TabIntro
+          icon={Bot}
+          blurb="Sample starter memories for developer onboarding. Each import creates a new tenant-owned subject you can edit, reset, or extend."
+        >
+          {packsLoading && demoPacks.length === 0 ? (
+            <p className="text-xs text-theme-muted">Loading starter packs…</p>
+          ) : (
+            <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] divide-y divide-theme-border/60">
+              {demoPacks.map((p) => (
+                <DemoAgentRow key={p.pack_id} pack={p} onComplete={onImportComplete} />
+              ))}
+            </div>
+          )}
+        </TabIntro>
+      )}
+
+      {activeTab === 'archive' && (
+        <TabIntro
+          icon={FileLock2}
+          blurb={
+            <>
+              Upload an encrypted <code className="font-mono">.swmem</code>{' '}
+              archive. Decryption happens entirely in your browser — the
+              passphrase is never sent to Statewave. If the passphrase is
+              lost, the archive cannot be recovered.
+            </>
+          }
+        >
+          <SwmemImporter onComplete={onImportComplete} />
+        </TabIntro>
+      )}
+
+      <div className="text-[10px] text-theme-muted leading-relaxed border-t border-theme-border/50 pt-3">
+        Memory actions never reset visitor memories. Per-visitor{' '}
+        <span className="font-mono">demo_web_*__statewave-support</span>{' '}
+        subjects are untouched by every action above.
+      </div>
+    </div>
   )
 }
 
@@ -541,7 +558,7 @@ function SwmemImporter({ onComplete }: { onComplete?: () => void }) {
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] text-theme-muted flex items-center gap-1">
           <Lock className="h-3 w-3" aria-hidden="true" />
-          Passphrase is not sent to the server.
+          Decrypted in your browser. Passphrase is never sent to Statewave; lost passphrases cannot be recovered.
         </p>
         <Button
           variant="secondary"

@@ -109,7 +109,7 @@ Section A of the Import / Restore drawer. Rebuilds the shared `statewave-support
 
 ### Import demo agent memories
 
-Section B of the drawer. Each card represents a bundled platform starter pack — `default-support-agent`, `coding-assistant`, `sales-copilot`, `devops-agent`, `research-assistant`. Clicking **Import** creates a fresh tenant-owned subject with provenance metadata (`starter_pack_id`, `starter_pack_version`, `imported_at`) on every record. Default conflict strategy: `create_copy` (never overwrites without explicit choice).
+Section B of the drawer. Each card represents a bundled platform starter pack — `demo-support-agent`, `demo-coding-assistant`, `demo-sales-copilot`, `demo-devops-agent`, `demo-research-assistant`. Clicking **Import** creates a fresh tenant-owned subject with provenance metadata (`starter_pack_id`, `starter_pack_version`, `imported_at`) on every record. Default conflict strategy: `create_copy` (never overwrites without explicit choice). The `demo-*` pack ids align with the marketing-widget demo personas, so an imported pack is immediately usable from the live demo without renaming.
 
 ### Clone subject
 
@@ -236,6 +236,7 @@ All under `/admin/memory/*`, gated by the existing X-API-Key middleware:
 | `POST /admin/memory/clone` | Clone a subject (refuses to overwrite by default) |
 | `POST /admin/memory/export` | Build a versioned plaintext export payload |
 | `POST /admin/memory/import` | Ingest a previously decrypted payload |
+| `POST /admin/docs-pack/reseed` | **Deprecated alias** — backward-compatible shim for `/admin/memory/support/reseed`. Same body, same response, same vendor-neutral service; kept so older operator scripts keep working. No GitHub token required. |
 
 ## Deployment
 

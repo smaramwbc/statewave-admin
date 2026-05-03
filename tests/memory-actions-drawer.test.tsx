@@ -99,7 +99,11 @@ describe('MemoryActionsDrawer', () => {
       expect(screen.getByRole('button', { name: /^Statewave Support$/ })).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: /^Demo agents/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Memory archive$/ })).toBeInTheDocument()
+    // Tab label intentionally calls out encryption so operators see the
+    // .swmem section is the encrypted archive flow, not just any importer.
+    expect(
+      screen.getByRole('button', { name: /^Encrypted memory archive$/ }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText(/Memory actions never reset visitor memories/i),
     ).toBeInTheDocument()
@@ -123,11 +127,17 @@ describe('MemoryActionsDrawer', () => {
     await act(async () => {
       render(<MemoryActionsDrawer open={true} onClose={() => {}} />)
     })
-    await selectTab(/Memory archive/)
+    await selectTab(/Encrypted memory archive/)
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Passphrase')).toBeInTheDocument()
     })
-    expect(screen.getByText(/Passphrase is not sent to the server/i)).toBeInTheDocument()
+    // Inline note must explain client-side decryption AND warn that lost
+    // passphrases cannot be recovered. Both properties are part of the
+    // .swmem security contract — losing either confuses operators about
+    // what Statewave does and does not control.
+    expect(
+      screen.getByText(/Passphrase is never sent to Statewave; lost passphrases cannot be recovered/i),
+    ).toBeInTheDocument()
   })
 })
 
@@ -187,7 +197,7 @@ describe('.swmem import flow — passphrase isolation', () => {
     await act(async () => {
       render(<MemoryActionsDrawer open={true} onClose={() => {}} />)
     })
-    await selectTab(/Memory archive/)
+    await selectTab(/Encrypted memory archive/)
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Passphrase')).toBeInTheDocument()
     })
@@ -226,6 +236,67 @@ describe('.swmem import flow — passphrase isolation', () => {
   })
 })
 
+describe('.swmem UX copy contract', () => {
+  /**
+   * Pins the four user-facing properties the security model depends on:
+   *   1. The section is labelled as encrypted (not just "memory archive")
+   *   2. Encryption / decryption happens in the browser
+   *   3. The passphrase is not sent to Statewave
+   *   4. Lost passphrases cannot be recovered (no server-side recovery path)
+   *
+   * Also pins the negative invariants — no vendor mentions, no
+   * "coming soon", no disabled state.
+   */
+  beforeEach(() => {
+    mockStarterPacks()
+  })
+
+  it('archive tab is named "Encrypted memory archive" and explains the security model', async () => {
+    await act(async () => {
+      render(<MemoryActionsDrawer open={true} onClose={() => {}} />)
+    })
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /^Encrypted memory archive$/ }),
+      ).toBeInTheDocument()
+    })
+    await selectTab(/Encrypted memory archive/)
+
+    // (2) Client-side decryption — required helper copy.
+    expect(screen.getByText(/Decryption happens entirely in your browser/i)).toBeInTheDocument()
+    // (3) Passphrase isolation. The phrase intentionally appears in
+    // multiple places (modal description + tab blurb + inline note next to
+    // the Decrypt button) — each one targets a different reading path
+    // (skim header / read intro / look at the action). Asserting ≥1 keeps
+    // the test honest without forcing a single canonical location.
+    expect(screen.getAllByText(/passphrase is never sent to Statewave/i).length).toBeGreaterThan(0)
+    // (4) No-recovery warning — must say it explicitly, not imply.
+    expect(
+      screen.getAllByText(/(archive cannot be recovered|cannot be recovered)/i).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('does not advertise the .swmem flow as disabled, coming soon, or vendor-tied', async () => {
+    await act(async () => {
+      render(<MemoryActionsDrawer open={true} onClose={() => {}} />)
+    })
+    await selectTab(/Encrypted memory archive/)
+
+    // Negative regression — none of these strings should appear anywhere
+    // in the drawer copy. They were considered during the release pass and
+    // explicitly rejected: .swmem ships live, vendor-neutral, and is not a
+    // preview feature.
+    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Fly\.io|Vercel|GitHub Actions|GITHUB_TOKEN/)).not.toBeInTheDocument()
+
+    // The Decrypt & preview button must be reachable (not behind a "disabled
+    // for now" guard) — disabled is allowed only when there's no file +
+    // passphrase yet, which is the normal idle state.
+    const btn = screen.getByRole('button', { name: /Decrypt & preview/i })
+    expect(btn).toBeInTheDocument()
+  })
+})
+
 describe('Wrong-passphrase decrypt flow', () => {
   it('shows the standard error message when the passphrase does not match', async () => {
     const blob = await encryptSwmem(
@@ -252,7 +323,7 @@ describe('Wrong-passphrase decrypt flow', () => {
     await act(async () => {
       render(<MemoryActionsDrawer open={true} onClose={() => {}} />)
     })
-    await selectTab(/Memory archive/)
+    await selectTab(/Encrypted memory archive/)
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Passphrase')).toBeInTheDocument()
     })

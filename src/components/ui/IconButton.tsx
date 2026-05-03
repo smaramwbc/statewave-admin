@@ -23,7 +23,7 @@ import { Loader2 } from 'lucide-react'
  */
 
 export type IconButtonVariant = 'ghost' | 'secondary' | 'destructive'
-export type IconButtonSize = 'sm' | 'md'
+export type IconButtonSize = 'xs' | 'sm' | 'md'
 
 export interface IconButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type' | 'aria-label'> {
@@ -47,6 +47,7 @@ const BASE =
   'disabled:opacity-50 disabled:pointer-events-none shrink-0'
 
 const SIZES: Record<IconButtonSize, string> = {
+  xs: 'w-6 h-6 [&>svg]:h-3 [&>svg]:w-3',
   sm: 'w-7 h-7 [&>svg]:h-3.5 [&>svg]:w-3.5',
   md: 'w-9 h-9 [&>svg]:h-4 [&>svg]:w-4',
 }

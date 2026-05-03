@@ -71,7 +71,7 @@ export function SubjectRowActions({ subjectId, onCloneComplete }: SubjectRowActi
           aria-label={`Open subject actions for ${subjectId}`}
           icon={<MoreVertical />}
           variant="ghost"
-          size="sm"
+          size="xs"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           onClick={(e) => {
