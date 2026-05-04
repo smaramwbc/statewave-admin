@@ -652,10 +652,50 @@ export interface SupportReseedResult {
   subject_id: string
   pack_id: string
   pack_version: string
+  installed_version: string | null
+  /** The version that was on the live subject before this call. `null` for
+   *  fresh installs (subject was empty or unversioned). */
+  previous_version?: string | null
   imported_episodes: number
   imported_memories: number
-  reseeded_at: string
+  /** Operator-added rows preserved by the selective purge, if any. */
+  operator_episodes_preserved?: number
+  operator_memories_preserved?: number
+  reseeded_at: string | null
   reason: string | null
+  /** False when the call was a no-op (live subject already on bundled
+   *  version and `force` was not set). */
+  updated: boolean
+  /** One of: `already_current` | `seeded` | `auto_updated` | `force_reseeded`. */
+  outcome: string
+}
+
+export interface SupportSubjectState {
+  subject_id: string
+  pack_id: string
+  /** Version of the pack baked into the running API image. */
+  bundled_version: string
+  /** Version currently installed in the live subject (read from row metadata).
+   *  Null when the subject is empty or only contains unversioned rows. */
+  installed_version: string | null
+  /** True when bundled_version === installed_version. */
+  is_up_to_date: boolean
+  total_episode_count: number
+  total_memory_count: number
+  /** Rows whose metadata identifies them as belonging to the support pack —
+   *  the only rows the auto-update path is allowed to delete. */
+  owned_episode_count: number
+  owned_memory_count: number
+  /** Rows added by an operator alongside the pack content. Surface these
+   *  in the UI so the operator knows their additions are safe across
+   *  auto-updates. */
+  operator_episode_count: number
+  operator_memory_count: number
+  last_reseed: {
+    imported_at: string | null
+    reason: string | null
+    version: string | null
+  }
 }
 
 export interface CloneResult {
@@ -724,12 +764,24 @@ export async function importStarterPack(
   return res.json()
 }
 
-export async function reseedStatewaveSupport(reason?: string): Promise<SupportReseedResult> {
+export async function reseedStatewaveSupport(
+  reason?: string,
+  options: { force?: boolean } = {},
+): Promise<SupportReseedResult> {
+  const body: { reason?: string; force?: boolean } = {}
+  if (reason) body.reason = reason
+  if (options.force) body.force = true
   const res = await fetch(adminUrl('/admin/memory/support/reseed'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(reason ? { reason } : {}),
+    body: JSON.stringify(body),
   })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function fetchSupportSubjectState(): Promise<SupportSubjectState> {
+  const res = await fetch(adminUrl('/admin/memory/support/state'))
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
