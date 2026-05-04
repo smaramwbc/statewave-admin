@@ -15,10 +15,12 @@ import {
   listStarterPacks,
   importStarterPack,
   reseedStatewaveSupport,
+  fetchSupportSubjectState,
   importMemoryPayload,
   type StarterPack,
   type StarterPackImportResult,
   type SupportReseedResult,
+  type SupportSubjectState,
   type MemoryImportResult,
 } from '../lib/api'
 import {
@@ -218,6 +220,25 @@ function TabIntro({
 
 // ─── Section A: Support restore card ─────────────────────────────────────────
 
+/** Renders a "2 hours ago" / "3 days ago" string from an ISO timestamp.
+ *  Falls back to the raw date for anything older than ~6 days. Pure
+ *  presentation helper — drift-tolerant so we don't drag in date-fns
+ *  for one card. */
+function formatRelative(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return null
+  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000))
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  if (days <= 6) return `${days} day${days === 1 ? '' : 's'} ago`
+  return new Date(iso).toLocaleDateString()
+}
+
 function SupportRestoreCard({
   pack,
   loading,
@@ -233,18 +254,43 @@ function SupportRestoreCard({
   const [reason, setReason] = useState('')
   const [result, setResult] = useState<SupportReseedResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [state, setState] = useState<SupportSubjectState | null>(null)
+  const [stateError, setStateError] = useState<string | null>(null)
+
+  // Fetch state on mount and after every successful reseed so the
+  // installed/bundled diff and the "last reseed" banner stay current
+  // without requiring the parent drawer to remount the card.
+  const refreshState = async () => {
+    try {
+      const s = await fetchSupportSubjectState()
+      setState(s)
+      setStateError(null)
+    } catch (e) {
+      setStateError(e instanceof Error ? e.message : 'Failed to load support state.')
+    }
+  }
+  useEffect(() => {
+    void refreshState()
+  }, [])
 
   const run = async () => {
     setPhase('running')
     setError(null)
     try {
-      const r = await reseedStatewaveSupport(reason.trim() || undefined)
+      // Manual restore via the drawer is always a force=true call. The
+      // version-aware no-op path is for the container-restart auto-update;
+      // an operator clicking Restore wants the action to actually happen
+      // even when versions match.
+      const r = await reseedStatewaveSupport(reason.trim() || undefined, { force: true })
       setResult(r)
       setPhase('success')
-      toast.success('Statewave Support restored', {
-        description: `${r.imported_episodes} episodes · ${r.imported_memories} memories`,
+      toast.success(r.updated ? 'Statewave Support restored' : 'Already up to date', {
+        description: r.updated
+          ? `${r.imported_episodes} episodes · ${r.imported_memories} memories`
+          : `Pack already at v${r.installed_version}.`,
       })
       onComplete?.()
+      void refreshState()
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Reseed failed.'
       setError(msg)
@@ -253,51 +299,139 @@ function SupportRestoreCard({
     }
   }
 
+  // Drive label + variant from the version diff so the operator sees at a
+  // glance whether they're refreshing or upgrading.
+  const installed = state?.installed_version ?? null
+  const bundled = state?.bundled_version ?? pack?.version ?? null
+  const isUpToDate = state?.is_up_to_date ?? false
+  const hasOperatorRows =
+    (state?.operator_episode_count ?? 0) > 0 ||
+    (state?.operator_memory_count ?? 0) > 0
+
+  const ctaLabel = !state
+    ? 'Restore Statewave Support'
+    : installed === null
+    ? 'Install support pack'
+    : isUpToDate
+    ? 'Restore Statewave Support'
+    : `Update to v${bundled}`
+
+  // When versions differ, raise the visual prominence of the action.
+  const ctaVariant: 'primary' | 'secondary' =
+    state && !isUpToDate && installed !== null ? 'primary' : 'secondary'
+
   return (
     <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-theme-primary">
-            Statewave Support docs pack
-          </p>
-          {pack && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-theme-primary">
+              Statewave Support docs pack
+            </p>
+            {state && installed !== null && (
+              isUpToDate ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-500 tabular-nums">
+                  Up to date
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-400 tabular-nums">
+                  Update available
+                </span>
+              )
+            )}
+          </div>
+          {/* Version line: "installed v1.0.0 → available v1.2.0" or just one
+              when both match. Falls back to pack manifest if the live state
+              hasn't loaded yet. */}
+          {state ? (
             <p className="text-xs text-theme-muted mt-1 tabular-nums">
-              v{pack.version} · {pack.episode_count} episodes ·{' '}
-              {pack.memory_count} memories
+              {installed === null ? (
+                <>Available v{bundled} · not installed</>
+              ) : isUpToDate ? (
+                <>v{installed} · {state.owned_episode_count} episodes · {state.owned_memory_count} memories</>
+              ) : (
+                <>
+                  Installed v{installed} → Available v{bundled} ·{' '}
+                  {state.owned_episode_count} ep / {state.owned_memory_count} mem in subject today
+                </>
+              )}
+            </p>
+          ) : pack ? (
+            <p className="text-xs text-theme-muted mt-1 tabular-nums">
+              v{pack.version} · {pack.episode_count} episodes · {pack.memory_count} memories
+            </p>
+          ) : null}
+          {state && hasOperatorRows && (
+            <p className="text-xs text-theme-muted mt-1 tabular-nums">
+              + {state.operator_episode_count} episode{state.operator_episode_count === 1 ? '' : 's'}{' '}
+              and {state.operator_memory_count} memor{state.operator_memory_count === 1 ? 'y' : 'ies'}{' '}
+              added by your team — preserved across restores.
+            </p>
+          )}
+          {state?.last_reseed.imported_at && (
+            <p className="text-xs text-theme-muted mt-2 leading-snug">
+              <span className="text-theme-secondary">Last refreshed</span>{' '}
+              {formatRelative(state.last_reseed.imported_at)}
+              {state.last_reseed.reason && (
+                <>
+                  {' '}— <span className="italic">"{state.last_reseed.reason}"</span>
+                </>
+              )}
             </p>
           )}
         </div>
         <Button
-          variant="secondary"
+          variant={ctaVariant}
           size="sm"
           onClick={() => setPhase('confirming')}
           disabled={loading || !pack}
           className="shrink-0"
         >
-          Restore Statewave Support
+          {ctaLabel}
         </Button>
       </div>
+
+      {stateError && (
+        <p className="text-xs text-amber-400 mt-2">
+          Couldn't load support pack state: {stateError}
+        </p>
+      )}
 
       {phase === 'confirming' && (
         <div className="mt-4 space-y-3 border-t border-theme-border/50 pt-4">
           <p className="text-xs text-theme-secondary leading-relaxed">
-            This will purge and rebuild the shared support subject from the
-            bundled starter pack. Per-visitor memory subjects are not touched.
+            {installed === null ? (
+              <>This will seed the shared support subject from the bundled pack.</>
+            ) : isUpToDate ? (
+              <>This will reimport the bundled pack — even though the live subject is already at v{bundled}. Pack-owned rows will be replaced; operator-added rows are preserved.</>
+            ) : (
+              <>This will upgrade the shared support subject from v{installed} to v{bundled}. Pack-owned rows are replaced; any operator-added rows are preserved.</>
+            )}{' '}
+            Per-visitor memory subjects are never touched.
           </p>
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason (optional, max 200 chars)"
-            maxLength={200}
-            className="w-full px-3 py-1.5 text-sm bg-[var(--theme-surface-1)] border border-theme-border rounded-lg text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
-          />
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-theme-muted font-medium">
+              Reason for the audit log
+            </span>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. quarterly refresh after docs revision"
+              maxLength={200}
+              className="mt-1 w-full px-3 py-1.5 text-sm bg-[var(--theme-surface-1)] border border-theme-border rounded-lg text-theme-primary placeholder:text-theme-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+            />
+          </label>
+          <p className="text-[10px] text-theme-muted leading-snug">
+            Recorded on every reseeded row's metadata and shown above as the
+            "last refreshed" line. Optional, max 200 characters.
+          </p>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setPhase('idle')}>
               Cancel
             </Button>
             <Button variant="primary" size="sm" onClick={run}>
-              Restore
+              {installed === null ? 'Seed' : isUpToDate ? 'Reimport' : `Update to v${bundled}`}
             </Button>
           </div>
         </div>
@@ -306,7 +440,7 @@ function SupportRestoreCard({
       {phase === 'running' && (
         <div className="mt-4 flex items-center gap-2 text-xs text-theme-secondary">
           <span className="inline-block w-3 h-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-          Rebuilding…
+          {installed === null ? 'Seeding…' : isUpToDate ? 'Reimporting…' : 'Upgrading…'}
         </div>
       )}
 
@@ -315,11 +449,23 @@ function SupportRestoreCard({
           <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" aria-hidden="true" />
           <div>
             <p className="text-xs text-emerald-500 font-medium">
-              Rebuilt {result.subject_id}
+              {result.updated
+                ? `Rebuilt ${result.subject_id} at v${result.installed_version}`
+                : `${result.subject_id} already at v${result.installed_version}`}
             </p>
-            <p className="text-xs text-theme-muted mt-1 tabular-nums">
-              {result.imported_episodes} episodes · {result.imported_memories} memories
-            </p>
+            {result.updated && (
+              <p className="text-xs text-theme-muted mt-1 tabular-nums">
+                {result.imported_episodes} episodes · {result.imported_memories} memories
+                {result.operator_episodes_preserved !== undefined &&
+                 (result.operator_episodes_preserved + (result.operator_memories_preserved ?? 0) > 0) && (
+                  <>
+                    {' '}·{' '}
+                    {result.operator_episodes_preserved + (result.operator_memories_preserved ?? 0)}{' '}
+                    operator row{result.operator_episodes_preserved + (result.operator_memories_preserved ?? 0) === 1 ? '' : 's'} preserved
+                  </>
+                )}
+              </p>
+            )}
           </div>
         </div>
       )}
