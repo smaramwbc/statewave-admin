@@ -257,9 +257,8 @@ function SupportRestoreCard({
   const [state, setState] = useState<SupportSubjectState | null>(null)
   const [stateError, setStateError] = useState<string | null>(null)
 
-  // Fetch state on mount and after every successful reseed so the
-  // installed/bundled diff and the "last reseed" banner stay current
-  // without requiring the parent drawer to remount the card.
+  // Fetch state after every successful reseed so the installed/bundled
+  // diff and the "last reseed" banner stay current without remounting.
   const refreshState = async () => {
     try {
       const s = await fetchSupportSubjectState()
@@ -269,8 +268,27 @@ function SupportRestoreCard({
       setStateError(e instanceof Error ? e.message : 'Failed to load support state.')
     }
   }
+
+  // Mount-time fetch is in-effect so the lint rule's set-state-in-effect
+  // check sees the setState call lives inside an async callback (post-await),
+  // not synchronously in the effect body. The cancelled flag drops the
+  // setState if the component unmounts mid-fetch.
   useEffect(() => {
-    void refreshState()
+    let cancelled = false
+    ;(async () => {
+      try {
+        const s = await fetchSupportSubjectState()
+        if (cancelled) return
+        setState(s)
+        setStateError(null)
+      } catch (e) {
+        if (cancelled) return
+        setStateError(e instanceof Error ? e.message : 'Failed to load support state.')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const run = async () => {
