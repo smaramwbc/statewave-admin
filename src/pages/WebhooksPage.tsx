@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   FilterSelect,
   Pagination,
@@ -9,12 +10,19 @@ import {
   Badge,
   TableSkeleton,
   CopyableMono,
+  Modal,
+  Button,
+  SearchInput,
 } from '../components/ui'
-import { fetchWebhookEvents, type WebhookEventListItem } from '../lib/api'
+import {
+  fetchWebhookEvents,
+  purgeWebhookEvents,
+  type WebhookEventListItem,
+} from '../lib/api'
 import { RefreshControl } from '../components/RefreshControl'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { PageHeader } from '../components/ui'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Trash2 } from 'lucide-react'
 
 const PAGE_SIZE = 50
 
@@ -245,16 +253,25 @@ function EventCard({ event }: { event: WebhookEventListItem }) {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
+// Statuses safe to bulk-delete. Mirrors the backend's TERMINAL_WEBHOOK_STATUSES
+// — pending events may still be picked up by the delivery worker, so the UI
+// hides the cleanup affordance for them.
+const TERMINAL_STATUSES = new Set(['delivered', 'dead_letter'])
+
 export function WebhooksPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState<{ events: WebhookEventListItem[]; total: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
+  const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [cleanupRunning, setCleanupRunning] = useState(false)
+  const [cleanupError, setCleanupError] = useState<string | null>(null)
 
   // Extract params from URL
   const statusFilter = searchParams.get('status') || ''
   const eventTypeFilter = searchParams.get('event') || ''
+  const tenantFilter = searchParams.get('tenant') || ''
   const page = parseInt(searchParams.get('page') || '1', 10)
 
   const updateParams = useCallback(
@@ -268,7 +285,12 @@ export function WebhooksPage() {
         }
       })
       // Reset to page 1 when filters change
-      if (!updates.page && (updates.status !== undefined || updates.event !== undefined)) {
+      if (
+        !updates.page &&
+        (updates.status !== undefined ||
+          updates.event !== undefined ||
+          updates.tenant !== undefined)
+      ) {
         newParams.delete('page')
       }
       setSearchParams(newParams)
@@ -283,6 +305,7 @@ export function WebhooksPage() {
       const result = await fetchWebhookEvents({
         status: statusFilter || undefined,
         event_type: eventTypeFilter || undefined,
+        tenant_id: tenantFilter || undefined,
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       })
@@ -293,7 +316,7 @@ export function WebhooksPage() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, eventTypeFilter, page])
+  }, [statusFilter, eventTypeFilter, tenantFilter, page])
 
   useEffect(() => {
     // Initial and reactive data fetch
@@ -316,6 +339,51 @@ export function WebhooksPage() {
   const stalledCount = data?.events.filter(isStalled).length || 0
   const problemCount = deadLetterCount + stalledCount
 
+  // Cleanup is only safe for terminal statuses — `pending` retries may still
+  // be in flight in the delivery worker. We require the operator to scope the
+  // delete with at least one filter (status, event_type, or tenant) so an
+  // empty-filter click can't wipe every delivered + dead-letter event in
+  // one go. Tenant is also offered as a scope so cross-tenant purges are
+  // never the "default" path.
+  const cleanupStatusValid =
+    !!statusFilter && TERMINAL_STATUSES.has(statusFilter)
+  const cleanupEnabled =
+    cleanupStatusValid || !!eventTypeFilter || !!tenantFilter
+  const cleanupSummary = [
+    cleanupStatusValid ? `status "${statusFilter}"` : null,
+    eventTypeFilter ? `type "${eventTypeFilter}"` : null,
+    tenantFilter ? `tenant "${tenantFilter}"` : null,
+  ]
+    .filter(Boolean)
+    .join(' and ')
+  const cleanupCrossTenant = cleanupEnabled && !tenantFilter
+
+  const runCleanup = async () => {
+    setCleanupRunning(true)
+    setCleanupError(null)
+    try {
+      const { deleted } = await purgeWebhookEvents({
+        status: cleanupStatusValid ? statusFilter : undefined,
+        event_type: eventTypeFilter || undefined,
+        tenant_id: tenantFilter || undefined,
+      })
+      setCleanupOpen(false)
+      toast.success(
+        deleted === 0
+          ? 'No webhook events matched'
+          : `Deleted ${deleted} webhook event${deleted === 1 ? '' : 's'}`,
+        cleanupSummary ? { description: `Filter: ${cleanupSummary}` } : undefined,
+      )
+      await loadData()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Cleanup failed'
+      setCleanupError(msg)
+      toast.error('Cleanup failed', { description: msg })
+    } finally {
+      setCleanupRunning(false)
+    }
+  }
+
   return (
     <PullToRefresh onRefresh={loadData}>
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -323,11 +391,30 @@ export function WebhooksPage() {
         title="Webhook Events"
         description="Monitor webhook delivery and identify failures"
         actions={
-          <RefreshControl
-            lastFetched={lastFetched}
-            onRefresh={() => void loadData()}
-            loading={loading}
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+              disabled={!cleanupEnabled}
+              onClick={() => {
+                setCleanupError(null)
+                setCleanupOpen(true)
+              }}
+              title={
+                cleanupEnabled
+                  ? `Delete events matching ${cleanupSummary}`
+                  : 'Pick a terminal status (delivered / dead_letter) or event type to enable cleanup'
+              }
+            >
+              Cleanup
+            </Button>
+            <RefreshControl
+              lastFetched={lastFetched}
+              onRefresh={() => void loadData()}
+              loading={loading}
+            />
+          </div>
         }
       />
 
@@ -350,6 +437,14 @@ export function WebhooksPage() {
             options={eventTypeOptions}
             placeholder="All event types"
             aria-label="Filter by event type"
+          />
+        </div>
+
+        <div className="w-56">
+          <SearchInput
+            value={tenantFilter}
+            onChange={(v) => updateParams({ tenant: v || undefined })}
+            placeholder="Filter by tenant…"
           />
         </div>
 
@@ -387,7 +482,7 @@ export function WebhooksPage() {
       )}
 
       {/* Empty - no data ever */}
-      {!loading && !error && data?.events.length === 0 && !statusFilter && !eventTypeFilter && (
+      {!loading && !error && data?.events.length === 0 && !statusFilter && !eventTypeFilter && !tenantFilter && (
         <EmptyState
           title="No webhook events yet"
           description="Webhook delivery attempts will appear here after events are emitted."
@@ -395,11 +490,11 @@ export function WebhooksPage() {
       )}
 
       {/* Empty - filtered results */}
-      {!loading && !error && data?.events.length === 0 && (statusFilter || eventTypeFilter) && (
+      {!loading && !error && data?.events.length === 0 && (statusFilter || eventTypeFilter || tenantFilter) && (
         <NoResultsState
           title="No webhook events found"
-          filterSummary={`No events matching ${statusFilter ? `status "${statusFilter}"` : ''}${statusFilter && eventTypeFilter ? ' and ' : ''}${eventTypeFilter ? `type "${eventTypeFilter}"` : ''}`}
-          onClearFilters={() => updateParams({ status: undefined, event: undefined })}
+          filterSummary={`No events matching ${cleanupSummary || 'the current filter'}`}
+          onClearFilters={() => updateParams({ status: undefined, event: undefined, tenant: undefined })}
         />
       )}
 
@@ -467,6 +562,57 @@ export function WebhooksPage() {
           Showing {data.events.length} of {data.total} events
         </div>
       )}
+
+      <Modal
+        open={cleanupOpen}
+        onClose={() => {
+          if (!cleanupRunning) setCleanupOpen(false)
+        }}
+        title="Delete webhook events?"
+        description={`This permanently deletes every event matching ${cleanupSummary || 'the current filter'} across all pages, not just the rows visible here.`}
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-theme-secondary">
+            Only terminal events (delivered, dead_letter) are deleted — pending
+            retries are never touched. This cannot be undone.
+          </p>
+          {cleanupCrossTenant && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+              <AlertTriangle
+                className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0"
+                aria-hidden="true"
+              />
+              <p className="text-xs text-amber-300">
+                No tenant filter set — this will delete events across <span className="font-semibold">every tenant</span>.
+                Add a tenant filter first if you only want to scope this to one tenant.
+              </p>
+            </div>
+          )}
+          {cleanupError && (
+            <p className="text-xs text-red-400 break-anywhere">{cleanupError}</p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCleanupOpen(false)}
+              disabled={cleanupRunning}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              loading={cleanupRunning}
+              onClick={() => void runCleanup()}
+              leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+            >
+              Delete events
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
     </PullToRefresh>
   )

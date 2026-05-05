@@ -470,6 +470,28 @@ export async function fetchCompileJobs(
   return res.json()
 }
 
+export interface PurgeCompileJobsParams {
+  status?: string
+  subject_id?: string
+  tenant_id?: string
+}
+
+/** Bulk-delete terminal compile jobs matching the filter. Server requires at
+ *  least one filter and rejects non-terminal statuses. */
+export async function purgeCompileJobs(
+  params: PurgeCompileJobsParams
+): Promise<{ deleted: number }> {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.subject_id) query.set('subject_id', params.subject_id)
+  if (params.tenant_id) query.set('tenant_id', params.tenant_id)
+  const queryStr = query.toString()
+  const path = `/admin/jobs${queryStr ? `?${queryStr}` : ''}`
+  const res = await fetch(adminUrl(path), { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 // ─── Webhook Events ──────────────────────────────────────────────────────────
 
 export interface WebhookEventListItem {
@@ -516,6 +538,28 @@ export async function fetchWebhookEvents(
   const path = `/admin/webhooks${queryStr ? `?${queryStr}` : ''}`
   const res = await fetch(adminUrl(path))
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export interface PurgeWebhookEventsParams {
+  status?: string
+  event_type?: string
+  tenant_id?: string
+}
+
+/** Bulk-delete terminal webhook events matching the filter. Server requires
+ *  at least one filter and rejects non-terminal statuses. */
+export async function purgeWebhookEvents(
+  params: PurgeWebhookEventsParams
+): Promise<{ deleted: number }> {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.event_type) query.set('event_type', params.event_type)
+  if (params.tenant_id) query.set('tenant_id', params.tenant_id)
+  const queryStr = query.toString()
+  const path = `/admin/webhooks${queryStr ? `?${queryStr}` : ''}`
+  const res = await fetch(adminUrl(path), { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
 
