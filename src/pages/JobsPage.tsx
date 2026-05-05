@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   FilterSelect,
   Pagination,
@@ -9,12 +10,19 @@ import {
   Badge,
   TableSkeleton,
   CopyableMono,
+  Modal,
+  Button,
+  SearchInput,
 } from '../components/ui'
-import { fetchCompileJobs, type CompileJobListItem } from '../lib/api'
+import {
+  fetchCompileJobs,
+  purgeCompileJobs,
+  type CompileJobListItem,
+} from '../lib/api'
 import { RefreshControl } from '../components/RefreshControl'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { PageHeader } from '../components/ui'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Trash2 } from 'lucide-react'
 
 const PAGE_SIZE = 50
 
@@ -251,15 +259,23 @@ function JobCard({ job }: { job: CompileJobListItem }) {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
+// Statuses safe to bulk-delete. Mirrors the backend's TERMINAL_JOB_STATUSES —
+// deleting `pending`/`running` rows would race the worker holding the job.
+const TERMINAL_STATUSES = new Set(['completed', 'failed'])
+
 export function JobsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState<{ jobs: CompileJobListItem[]; total: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
+  const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [cleanupRunning, setCleanupRunning] = useState(false)
+  const [cleanupError, setCleanupError] = useState<string | null>(null)
 
   // Extract params from URL
   const statusFilter = searchParams.get('status') || ''
+  const tenantFilter = searchParams.get('tenant') || ''
   const page = parseInt(searchParams.get('page') || '1', 10)
 
   const updateParams = useCallback(
@@ -273,7 +289,10 @@ export function JobsPage() {
         }
       })
       // Reset to page 1 when filters change
-      if (!updates.page && updates.status !== undefined) {
+      if (
+        !updates.page &&
+        (updates.status !== undefined || updates.tenant !== undefined)
+      ) {
         newParams.delete('page')
       }
       setSearchParams(newParams)
@@ -287,6 +306,7 @@ export function JobsPage() {
     try {
       const result = await fetchCompileJobs({
         status: statusFilter || undefined,
+        tenant_id: tenantFilter || undefined,
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       })
@@ -297,7 +317,7 @@ export function JobsPage() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, page])
+  }, [statusFilter, tenantFilter, page])
 
   useEffect(() => {
     // Initial and reactive data fetch
@@ -318,6 +338,45 @@ export function JobsPage() {
   // Count stuck jobs
   const stuckCount = data?.jobs.filter(isStuck).length || 0
 
+  // Cleanup is restricted to terminal statuses — deleting a running job would
+  // strand the worker. We require at least one filter (status or tenant) so
+  // an empty-filter click can't wipe the entire completed/failed history.
+  const cleanupStatusValid =
+    !!statusFilter && TERMINAL_STATUSES.has(statusFilter)
+  const cleanupEnabled = cleanupStatusValid || !!tenantFilter
+  const cleanupSummary = [
+    cleanupStatusValid ? `status "${statusFilter}"` : null,
+    tenantFilter ? `tenant "${tenantFilter}"` : null,
+  ]
+    .filter(Boolean)
+    .join(' and ')
+  const cleanupCrossTenant = cleanupEnabled && !tenantFilter
+
+  const runCleanup = async () => {
+    setCleanupRunning(true)
+    setCleanupError(null)
+    try {
+      const { deleted } = await purgeCompileJobs({
+        status: cleanupStatusValid ? statusFilter : undefined,
+        tenant_id: tenantFilter || undefined,
+      })
+      setCleanupOpen(false)
+      toast.success(
+        deleted === 0
+          ? 'No jobs matched'
+          : `Deleted ${deleted} compile job${deleted === 1 ? '' : 's'}`,
+        cleanupSummary ? { description: `Filter: ${cleanupSummary}` } : undefined,
+      )
+      await loadData()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Cleanup failed'
+      setCleanupError(msg)
+      toast.error('Cleanup failed', { description: msg })
+    } finally {
+      setCleanupRunning(false)
+    }
+  }
+
   return (
     <PullToRefresh onRefresh={loadData}>
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -325,11 +384,30 @@ export function JobsPage() {
         title="Compile Jobs"
         description="Monitor memory compilation jobs and identify failures"
         actions={
-          <RefreshControl
-            lastFetched={lastFetched}
-            onRefresh={() => void loadData()}
-            loading={loading}
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+              disabled={!cleanupEnabled}
+              onClick={() => {
+                setCleanupError(null)
+                setCleanupOpen(true)
+              }}
+              title={
+                cleanupEnabled
+                  ? `Delete jobs matching ${cleanupSummary}`
+                  : 'Pick a terminal status (completed / failed) or tenant to enable cleanup'
+              }
+            >
+              Cleanup
+            </Button>
+            <RefreshControl
+              lastFetched={lastFetched}
+              onRefresh={() => void loadData()}
+              loading={loading}
+            />
+          </div>
         }
       />
 
@@ -342,6 +420,14 @@ export function JobsPage() {
             options={statusOptions}
             placeholder="All statuses"
             aria-label="Filter by job status"
+          />
+        </div>
+
+        <div className="w-56">
+          <SearchInput
+            value={tenantFilter}
+            onChange={(v) => updateParams({ tenant: v || undefined })}
+            placeholder="Filter by tenant…"
           />
         </div>
 
@@ -379,7 +465,7 @@ export function JobsPage() {
       )}
 
       {/* Empty - no data ever */}
-      {!loading && !error && data?.jobs.length === 0 && !statusFilter && (
+      {!loading && !error && data?.jobs.length === 0 && !statusFilter && !tenantFilter && (
         <EmptyState
           title="No jobs yet"
           description="Compile, import, restore, and maintenance jobs will appear here when they run."
@@ -387,11 +473,11 @@ export function JobsPage() {
       )}
 
       {/* Empty - filtered results */}
-      {!loading && !error && data?.jobs.length === 0 && statusFilter && (
+      {!loading && !error && data?.jobs.length === 0 && (statusFilter || tenantFilter) && (
         <NoResultsState
           title="No jobs found"
-          filterSummary={`No jobs with status "${statusFilter}"`}
-          onClearFilters={() => updateParams({ status: undefined })}
+          filterSummary={`No jobs matching ${cleanupSummary || 'the current filter'}`}
+          onClearFilters={() => updateParams({ status: undefined, tenant: undefined })}
         />
       )}
 
@@ -458,6 +544,57 @@ export function JobsPage() {
           Showing {data.jobs.length} of {data.total} jobs
         </div>
       )}
+
+      <Modal
+        open={cleanupOpen}
+        onClose={() => {
+          if (!cleanupRunning) setCleanupOpen(false)
+        }}
+        title="Delete compile jobs?"
+        description={`This permanently deletes every job matching ${cleanupSummary || 'the current filter'} across all pages, not just the rows visible here.`}
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-theme-secondary">
+            Only terminal jobs (completed, failed) are deleted — pending and
+            running jobs are never touched. This cannot be undone.
+          </p>
+          {cleanupCrossTenant && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+              <AlertTriangle
+                className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0"
+                aria-hidden="true"
+              />
+              <p className="text-xs text-amber-300">
+                No tenant filter set — this will delete jobs across <span className="font-semibold">every tenant</span>.
+                Add a tenant filter first if you only want to scope this to one tenant.
+              </p>
+            </div>
+          )}
+          {cleanupError && (
+            <p className="text-xs text-red-400 break-anywhere">{cleanupError}</p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCleanupOpen(false)}
+              disabled={cleanupRunning}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              loading={cleanupRunning}
+              onClick={() => void runCleanup()}
+              leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+            >
+              Delete jobs
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
     </PullToRefresh>
   )
