@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, Stethoscope } from 'lucide-react'
+import { AlertCircle, Loader2, Stethoscope } from 'lucide-react'
 import { fetchSmokeStatus, type SmokeStatus } from '../lib/api'
 
 /**
@@ -10,9 +10,10 @@ import { fetchSmokeStatus, type SmokeStatus } from '../lib/api'
  * lightweight nudge that surfaces on the Dashboard when something needs
  * the operator's attention:
  *
- *   - has_run=false       → "System check pending · Run now →" (neutral)
- *   - status=failed/partial → "System check needs attention →" (amber)
- *   - status=success      → render nothing (cleanest dashboard)
+ *   - is_running=true                → "System check running…" (neutral)
+ *   - has_run=false                  → "System check pending"  (neutral)
+ *   - status=failed/partial          → "System check needs attention" (amber)
+ *   - status=success                 → render nothing (cleanest dashboard)
  *
  * Failures keep the banner up so a regression after a green install
  * still reaches the Overview surface — but a healthy first-run install
@@ -45,32 +46,36 @@ export function SmokeCheckBanner() {
 
   const overall = status.last_result?.status ?? null
   const needsAttention = overall === 'failed' || overall === 'partial'
-  const pending = !status.has_run && overall !== 'success'
+  const running = status.is_running
+  const pending = !status.has_run && overall !== 'success' && !running
 
-  if (!pending && !needsAttention) return null
+  if (!pending && !needsAttention && !running) return null
 
   const tone = needsAttention
     ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400'
     : 'border-theme-border bg-[var(--theme-card-bg)] text-theme-secondary'
 
-  const Icon = needsAttention ? AlertCircle : Stethoscope
+  const Icon = needsAttention ? AlertCircle : running ? Loader2 : Stethoscope
   const message = needsAttention
     ? 'System smoke check needs attention.'
-    : 'First-run system check pending.'
-  const cta = needsAttention ? 'View diagnostics →' : 'Run now →'
-
+    : running
+      ? 'System check is running…'
+      : 'First-run system check pending.'
   return (
     <div
       className={`mb-6 rounded-xl border ${tone} px-4 py-2.5 flex items-center gap-3 text-xs`}
       role="status"
     >
-      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <Icon
+        className={`h-4 w-4 shrink-0 ${running ? 'animate-spin' : ''}`}
+        aria-hidden="true"
+      />
       <span className="flex-1 truncate">{message}</span>
       <Link
         to="/diagnostics"
         className="shrink-0 font-medium hover:underline whitespace-nowrap"
       >
-        {cta}
+        Open diagnostics →
       </Link>
     </div>
   )
