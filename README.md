@@ -68,6 +68,19 @@ All variables are **server-side only**. None may use a `VITE_*` prefix — those
 | `ADMIN_AUTH_DISABLED` | `false` | Local-dev escape hatch; shows a warning banner when true |
 | `ADMIN_TRUST_GATEWAY_HEADERS` | `false` | Accept identity from a fronting proxy (Cloudflare Access etc.) |
 | `ADMIN_ALLOWED_EMAILS` | _(empty)_ | Comma-separated allowlist for gateway-supplied emails |
+| `ADMIN_SMOKE_DISABLED` | `false` | Set to `true` to disable the first-admin-run smoke check |
+| `ADMIN_SMOKE_STATE_DIR` | _(none)_ | Optional directory for persisting smoke status across restarts |
+| `ADMIN_SELF_HEALING_EVAL_ENABLED` | `false` | Master switch for the Self-Healing Eval feature |
+| `ADMIN_EVAL_LLM_PROVIDER` | _(none)_ | LLM judge provider — `openai`, `anthropic`, or `openai-compatible` |
+| `ADMIN_EVAL_LLM_MODEL` | _(none)_ | Judge model name (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`) |
+| `ADMIN_EVAL_LLM_API_KEY` | _(none)_ | Judge provider API key (server-side only) |
+| `ADMIN_EVAL_LLM_BASE_URL` | _(none)_ | Required when provider is `openai-compatible`. Use this for **LiteLLM proxies** (`http://localhost:4000`, hosted LiteLLM gateways) or **Azure OpenAI** access fronted by LiteLLM. Ignored for raw `openai` / `anthropic`. |
+| `ADMIN_DEMO_AGENT_URL` | _(none)_ | HTTP endpoint of the demo support agent the eval will talk to |
+| `ADMIN_DEMO_AGENT_API_KEY` | _(none)_ | Optional bearer token sent to the demo agent |
+| `ADMIN_DEMO_AGENT_BODY_FORMAT` | `default` | `default` (eval-native shape) or `statewave-web` (translates to `{messages, mode, persona}` so the existing `/api/widget-chat` endpoint in [statewave-web](https://github.com/smaramwbc/statewave-web) can be used as the demo agent without changes) |
+| `ADMIN_DEMO_AGENT_PERSONA` | `statewave-support` | Persona id used only when `ADMIN_DEMO_AGENT_BODY_FORMAT=statewave-web`. Defaults to the docs-grounded persona. |
+| `ADMIN_DEMO_WEBHOOK_URL` | _(none)_ | **Reserved / informational in this MVP.** Webhook delivery validation reuses the existing Statewave smoke-check path — the eval observes whatever destination `STATEWAVE_WEBHOOK_URL` is set to on the Statewave server. |
+| `ADMIN_EVAL_STORAGE_PATH` | _(none)_ | Optional directory for persisting eval reports across restarts |
 | `PORT` | `8080` | Standalone Node server listen port |
 | `HOST` | `0.0.0.0` | Standalone Node server bind host |
 | `ADMIN_STATIC_DIR` | `./dist` | Path to the built static frontend |
@@ -152,6 +165,135 @@ A successful logout calls `purgeCachesAndUnregister()` which wipes every SW cach
 - **DevTools → Application → Service workers** must show `sw.js` registered and active.
 - **Lighthouse → PWA** runs against the production build via `npm run build && npm run start` and should show "Installable" green.
 - **iOS** behavior is verified manually — Add to Home Screen, confirm the icon, status-bar style, and that the offline page appears when airplane mode is toggled.
+
+## First-admin-run smoke check
+
+The **Diagnostics** page (`/diagnostics`) hosts a self-test that validates a fresh admin install is wired up to a healthy Statewave backend. The first time an authenticated operator opens the page against a deployment that has never run the check, the admin server transparently:
+
+1. Probes `/readyz` and `/admin/dashboard` to confirm the backend is reachable and the API key has admin scope.
+2. Ingests a tiny demo episode against a clearly named subject — `statewave-demo:first-admin-run` — and triggers an **async** compile so a row lands in `compile_jobs` and the operator can see the artifact under **/jobs**. The admin polls the job status until it leaves `pending`/`running`.
+3. Reads `/admin/webhooks/stats` before and after the demo run. If the count never changes, no webhook URL is configured on the backend and the card reports a neutral *"Webhooks not configured"* state with a hint to set `STATEWAVE_WEBHOOK_URL` (e.g. to `https://webhook.site/<id>` or a local sink) and rerun. If the count rises, the most recent event's delivery status (`delivered` / `pending` / `dead_letter`) is shown along with a link to **/webhooks**.
+
+### Dashboard banner
+
+The Overview page renders a one-line banner only when there is something to act on:
+
+- **First-run pending** *(neutral)* — smoke has never run on this deployment. Banner: *"First-run system check pending · Run now →"* (links to `/diagnostics`).
+- **Last run failed or partial** *(amber)* — banner: *"System smoke check needs attention · View diagnostics →"*.
+- **Last run succeeded** *(no banner)* — Overview stays clean.
+
+The smoke flow itself never runs from the Dashboard — only from `/diagnostics`. This keeps Overview focused on live operational metrics and lets Diagnostics grow into a home for additional probes (webhook tester, connector validators, etc.) over time.
+
+The result lives in-process by default so it survives admin reloads but resets on restart. Set `ADMIN_SMOKE_STATE_DIR=/var/lib/statewave-admin` (or any writable directory) to persist last-run state across restarts.
+
+### Endpoints
+
+Both endpoints sit behind the same auth gate as `/api/proxy` — no secrets ever leave the server, and unauthenticated browsers cannot trigger demo writes.
+
+| Method + Path | Purpose |
+|---|---|
+| `GET  /api/admin/smoke/status` | Read the most recent run's result + whether the deployment has ever run the check |
+| `POST /api/admin/smoke/run`    | Run the smoke flow now (single-flighted server-side; concurrent calls share one upstream run) |
+
+### Idempotency
+
+- The demo subject id is fixed (`statewave-demo:first-admin-run`) so re-running the check does not create unbounded subjects.
+- The server single-flights concurrent runs, so the dashboard auto-fire + a manual click cannot pile on duplicate demo episodes.
+- A small `localStorage` flag in the browser debounces the auto-fire across reloads while a slow run is in flight.
+
+### Disabling
+
+Set `ADMIN_SMOKE_DISABLED=true` to opt out entirely. The card renders a neutral *"Smoke check disabled"* state and the run endpoint returns immediately without contacting the backend.
+
+### Manual rerun
+
+The card always exposes a **Run smoke check again** button. Use it after fixing a backend issue to confirm the wiring is healthy without restarting the admin process.
+
+## Self-Healing Eval
+
+A second card on the **Diagnostics** page (`/diagnostics`) runs an LLM-graded multi-turn conversation against a demo support agent and produces an actionable improvement report. It is admin-triggered only — it never runs on its own.
+
+### Availability
+
+The card stays disabled until **all** of the following are set on the admin server:
+
+- `ADMIN_SELF_HEALING_EVAL_ENABLED=true`
+- `ADMIN_EVAL_LLM_PROVIDER` (`openai` | `anthropic` | `openai-compatible`)
+- `ADMIN_EVAL_LLM_MODEL` (e.g. `gpt-4o-mini`)
+- `ADMIN_EVAL_LLM_API_KEY`
+- `ADMIN_EVAL_LLM_BASE_URL` — **required** when provider is `openai-compatible`. Point this at a [LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy) (`http://localhost:4000` for local; your hosted gateway URL for prod) so virtual keys and Azure-OpenAI/Anthropic/Bedrock routing work transparently. Use the `openai` provider directly only for raw `api.openai.com` keys.
+- `ADMIN_DEMO_AGENT_URL` — an HTTP endpoint the eval forwards questions to. Two shapes supported, gated by `ADMIN_DEMO_AGENT_BODY_FORMAT`:
+  - **`default`** *(default)* — POST `{subject_id, session_id, agent_id, messages}`. Use this when you build your own demo agent.
+  - **`statewave-web`** — POST `{messages, mode: "statewave", persona}` to match the existing `/api/widget-chat` endpoint in [statewave-web](https://github.com/smaramwbc/statewave-web). Lets you point the eval at the running web app for a quick local end-to-end test, no changes on the web side. Persona defaults to `statewave-support` (docs-grounded). Note: `/api/widget-chat` derives subject_id from a visitor cookie, so this is single-conversation per admin browser session — fine for evals, not for production multi-tenant use.
+  - Response parsing is lenient in both modes: `{message}` / `{answer}` / `{text}` / `{reply}` / `{choices[0].message.content}`.
+- `STATEWAVE_API_URL` (already required for the rest of the admin)
+
+When unavailable, the card surfaces the literal message `Self-Healing Eval requires an LLM evaluator. Configure ADMIN_EVAL_LLM_PROVIDER, ADMIN_EVAL_LLM_MODEL, and ADMIN_EVAL_LLM_API_KEY.` together with the specific reasons the run cannot start.
+
+### Eval modes
+
+| Mode | Levels | Default questions | Purpose |
+|---|---|---|---|
+| Smoke Eval | 0–1 | 8 | Verify the system answers basic identity / comparison questions |
+| Developer Eval | 0–6 | 20 | Verify install / API / code / debugging answers are usable |
+| Full Self-Healing Eval | 0–9 | 40 | Adds architecture, false-premise correction, topic-drift recovery |
+
+The card shows the **estimated LLM call count** before you start (`questions × 2` — one demo-agent call + one judge call), and exposes overrides for `max_questions`, `include_code`, and `include_topic_drift`.
+
+### Difficulty ladder (levels 0–9)
+
+| Level | Theme |
+|---|---|
+| 0 | Basic identity (what is Statewave, episodes, memories, context bundles) |
+| 1 | Comparison (vs prompt-stuffing, vs chatbot, vs raw message storage) |
+| 2 | Workflow (ingest → compile → retrieve) |
+| 3 | Local setup (docker, Postgres+pgvector, env vars, /readyz) |
+| 4 | API + integration (POST /v1/episodes, /v1/memories/compile, context bundle) |
+| 5 | Developer usage (npm / SDK / JS examples — honesty over invented packages) |
+| 6 | Debugging (weak retrieval, webhook not firing, generic answers) |
+| 7 | Architecture (multi-step implementation plans, multi-tenant org) |
+| 8 | False-premise correction (GPU training, chatbot personality, etc.) |
+| 9 | Topic drift / conversation recovery (off-topic asks, unsafe interpretations) |
+
+### Reports
+
+Every finished run produces:
+
+- **JSON** — full conversation, per-turn LLM-judge evaluation, summaries by level / category / root cause, recommendations, and a deterministic Copilot improvement prompt.
+- **Markdown** — the same report formatted for review or sharing.
+- **Copilot prompt** — a copyable improvement prompt assembled from failed turns, ranked root causes, and likely files to inspect. **Deterministic** (no extra LLM call).
+
+The card surfaces three copy buttons: **JSON report**, **Markdown report**, **Copilot improvement prompt**.
+
+### Storage
+
+In-process by default. Set `ADMIN_EVAL_STORAGE_PATH=/var/lib/statewave-admin/eval` to also persist:
+
+- `<path>/latest.json` — most recent finished report
+- `<path>/runs/<run_id>.json` — every report by run id
+
+All persisted JSON has API keys, bearer tokens, authorization headers, and DB credentials redacted.
+
+### Endpoints
+
+All four sit behind the same auth gate as `/api/proxy`:
+
+| Method + Path | Purpose |
+|---|---|
+| `GET  /api/self-healing-eval/status` | Availability flags + latest run summary + live progress |
+| `POST /api/self-healing-eval/run` | Kick off a run (returns 202 with `run_id` immediately) |
+| `GET  /api/self-healing-eval/report/latest` | Most recent finished report (`?format=markdown` for the rendered version) |
+| `GET  /api/self-healing-eval/report/<runId>` | Specific run's report |
+
+### Webhook validation in this MVP
+
+`ADMIN_DEMO_WEBHOOK_URL` is **reserved / informational** in the current build — it is read into the config and surfaced in `/status`, but the eval does not yet trigger or observe webhooks against this URL directly. Actual webhook delivery validation reuses the existing Statewave **smoke-check** path: the runner calls `runSmoke()` for system probes, which observes `/admin/webhooks/stats` against whatever destination `STATEWAVE_WEBHOOK_URL` is configured to on the Statewave server. The eval report's `webhook` block reflects that observation.
+
+If you want a separate, eval-owned webhook destination later, that is a deliberate follow-up — not a missing feature in MVP.
+
+### Demo data
+
+The eval seeds a clearly named subject and session — `admin-self-healing-eval-demo` and `admin-self-healing-eval-run-<run_id>` — so demo data is easy to identify and safe to delete from the Subjects page if you want to clean up between runs.
 
 ## Memory management
 

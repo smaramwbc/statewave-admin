@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import App from '../src/App'
-import { isSessionUrl, makeSessionMock } from './setup'
+import {
+  isSessionUrl,
+  isSmokeRunUrl,
+  isSmokeStatusUrl,
+  makeSessionMock,
+  makeSmokeStatusMock,
+} from './setup'
 
 /**
  * Regression: per the spec, all memory actions live on the Subjects page,
@@ -40,6 +46,9 @@ describe('Dashboard — memory actions are not present', () => {
   beforeEach(() => {
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       if (isSessionUrl(url)) return Promise.resolve(makeSessionMock())
+      if (isSmokeStatusUrl(url) || isSmokeRunUrl(url)) {
+        return Promise.resolve(makeSmokeStatusMock())
+      }
       const u = typeof url === 'string' ? url : (url as URL).toString()
       if (u.includes('usage')) {
         return Promise.resolve({ ok: true, json: async () => mockUsage } as Response)

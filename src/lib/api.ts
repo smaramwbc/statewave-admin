@@ -849,3 +849,426 @@ export async function importMemoryPayload(
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+// ─── First-admin-run smoke check ─────────────────────────────────────────────
+//
+// The admin server runs a small ingest/compile/webhook flow against the
+// connected backend so a fresh install can self-verify wiring. Both calls
+// go through the auth-gated `/api/admin/smoke/*` endpoints — never directly
+// to the Statewave backend — so the X-API-Key never crosses to the browser.
+
+export type SmokeOverallStatus =
+  | 'never_run'
+  | 'running'
+  | 'success'
+  | 'partial'
+  | 'failed'
+  | 'disabled'
+
+export type SmokeStepStatus = 'ok' | 'failed' | 'skipped'
+
+export type SmokeWebhookState =
+  | 'configured_delivered'
+  | 'configured_pending'
+  | 'configured_failed'
+  | 'not_configured'
+  | 'unknown'
+
+export interface SmokeBackendStep {
+  status: SmokeStepStatus
+  detail: string
+  readiness?: string
+}
+
+export interface SmokeDemoJobStep {
+  status: SmokeStepStatus
+  detail: string
+  subject_id: string
+  episode_id: string | null
+  job_id: string | null
+  memories_created: number | null
+  job_mode: 'sync' | 'async' | null
+  subject_visible: boolean
+}
+
+export interface SmokeDemoWebhookStep {
+  status: SmokeStepStatus
+  detail: string
+  state: SmokeWebhookState
+  total_before: number | null
+  total_after: number | null
+  sample: {
+    id: string
+    event: string
+    status: string
+    http_status: number | null
+  } | null
+}
+
+export interface SmokeResult {
+  status: SmokeOverallStatus
+  started_at: string
+  finished_at: string | null
+  duration_ms: number | null
+  backend: SmokeBackendStep
+  demo_job: SmokeDemoJobStep
+  demo_webhook: SmokeDemoWebhookStep
+  error: string | null
+}
+
+export interface SmokeStatus {
+  enabled: boolean
+  has_run: boolean
+  is_running: boolean
+  subject_id: string
+  last_result: SmokeResult | null
+}
+
+export async function fetchSmokeStatus(): Promise<SmokeStatus> {
+  const res = await fetch('/api/admin/smoke/status', {
+    credentials: 'same-origin',
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function runSmokeCheck(): Promise<SmokeResult> {
+  const res = await fetch('/api/admin/smoke/run', {
+    method: 'POST',
+    credentials: 'same-origin',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Self-Healing Eval ────────────────────────────────────────────────────
+//
+// Mirrors `server/self-healing-eval/types.ts`. The shapes are duplicated
+// (rather than imported) because the client bundle must not pull in
+// `server/*` modules — those depend on `node:*`.
+
+export type EvalLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+export type EvalMode = 'smoke' | 'developer' | 'full'
+export type EvalVerdict = 'pass' | 'partial' | 'fail'
+export type EvalRunStatus = 'idle' | 'running' | 'pass' | 'partial' | 'fail' | 'error'
+
+export interface EvalAvailability {
+  available: boolean
+  enabled: boolean
+  llm_configured: boolean
+  demo_agent_configured: boolean
+  webhook_configured: boolean
+  reasons: string[]
+}
+
+export interface EvalStatus {
+  availability: EvalAvailability
+  is_running: boolean
+  current_run_id: string | null
+  latest: {
+    run_id: string
+    status: EvalRunStatus
+    finished_at: string | null
+    overall_score: number
+    mode: EvalMode
+  } | null
+  progress: { completed: number; total: number; current_question_id: string | null } | null
+  config_summary: {
+    statewave_api_url_set: boolean
+    llm_provider: string | null
+    llm_model: string | null
+    demo_agent_url_set: boolean
+    webhook_url_set: boolean
+    storage_path_set: boolean
+  }
+}
+
+export interface EvalConversationTurn {
+  turn_id: string
+  question_id: string
+  level: EvalLevel
+  category: string
+  question: string
+  answer: string
+  follow_up_of?: string
+  metadata: {
+    requires_code: boolean
+    requires_docs_grounding: boolean
+    topic_drift: boolean
+    false_premise: boolean
+  }
+  evaluation: {
+    correctness_score: number
+    grounding_score: number
+    completeness_score: number
+    clarity_score: number
+    safety_score: number
+    overall_score: number
+    verdict: EvalVerdict
+    reason: string
+    missing_points: string[]
+    hallucination_risks: string[]
+    recommended_fix: string
+    likely_root_cause: string[]
+  }
+}
+
+export interface EvalLevelSummary {
+  name: string
+  turns_total: number
+  passes: number
+  partials: number
+  fails: number
+  average_score: number
+}
+
+export interface EvalRecommendation {
+  priority: 'high' | 'medium' | 'low'
+  area: string
+  problem: string
+  recommended_change: string
+  acceptance_criteria: string[]
+}
+
+export interface EvalAgentPromptOverrideMetadata {
+  used: boolean
+  delivery: 'not_used' | 'sent' | 'sent_unconfirmed' | 'confirmed'
+  length: number
+  hash: string
+  preview: string
+}
+
+export interface EvalComparisonResult {
+  baseline_run_id: string
+  candidate_run_id: string
+  baseline_score: number
+  candidate_score: number
+  score_delta: number
+  pass_delta: number
+  partial_delta: number
+  fail_delta: number
+  root_cause_delta: Record<string, { before: number; after: number; delta: number }>
+  level_delta: Record<string, { before_avg: number; after_avg: number; delta: number }>
+  improved_turns: string[]
+  regressed_turns: string[]
+  unchanged_failed_turns: string[]
+}
+
+export interface EvalReport {
+  run_id: string
+  started_at: string
+  finished_at: string | null
+  status: EvalRunStatus
+  mode: EvalMode
+  max_level: EvalLevel
+  config: {
+    statewave_api_url: string
+    llm_provider: string
+    llm_model: string
+    demo_agent_configured: boolean
+    webhook_configured: boolean
+    agent_prompt_override: EvalAgentPromptOverrideMetadata
+  }
+  comparison?: EvalComparisonResult
+  health: { status: 'pass' | 'fail'; details: Record<string, unknown> }
+  webhook: {
+    status: 'pass' | 'partial' | 'fail' | 'not_configured'
+    trigger_attempted: boolean
+    delivery_observed: boolean
+    details: Record<string, unknown>
+    recommended_fix: string
+  }
+  demo_job: { status: 'pass' | 'partial' | 'fail'; details: Record<string, unknown> }
+  conversation: EvalConversationTurn[]
+  summary: {
+    turns_total: number
+    passes: number
+    partials: number
+    fails: number
+    overall_score: number
+  }
+  summary_by_level: Record<string, EvalLevelSummary>
+  summary_by_category: Record<
+    string,
+    {
+      turns_total: number
+      passes: number
+      partials: number
+      fails: number
+      average_score: number
+    }
+  >
+  summary_by_root_cause: Record<string, { count: number; example_turn_ids: string[] }>
+  recommendations: EvalRecommendation[]
+  copilot_prompt: string
+  progress: { completed: number; total: number; current_question_id: string | null }
+  error: string | null
+}
+
+export interface EvalRunResponse {
+  ok: boolean
+  run_id: string | null
+  status: EvalRunStatus
+  estimated_llm_calls: number | null
+  error: string | null
+}
+
+export interface EvalRunRequest {
+  mode?: EvalMode
+  max_level?: EvalLevel
+  max_questions?: number
+  include_code?: boolean
+  include_topic_drift?: boolean
+  /** When set, the demo agent is asked to answer FROM this subject's
+   *  memory during the conversation phase. Smoke probes upstream are
+   *  unaffected — they always use their own demo subject. */
+  subject_id?: string
+  /** Generated bank from /api/self-healing-eval/questions/generate. */
+  override_questions?: EvalQuestionForUI[]
+  /** Eval-only candidate agent system prompt — forwarded to the demo
+   *  agent for this run only. Never persisted as production config. */
+  system_prompt_override?: string
+  /** Run id of an earlier eval run to diff against. When set, the
+   *  finished report carries a `comparison` block. */
+  baseline_run_id?: string
+}
+
+export async function fetchEvalStatus(): Promise<EvalStatus> {
+  const res = await fetch('/api/self-healing-eval/status', { credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function startEvalRun(body: EvalRunRequest = {}): Promise<EvalRunResponse> {
+  const res = await fetch('/api/self-healing-eval/run', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  // 409 = run-in-progress, returns a structured payload too. Surface the
+  // body so the UI can render the message instead of a generic error.
+  if (res.status === 409 || res.ok || res.status === 202) {
+    return res.json()
+  }
+  throw new Error(await readError(res))
+}
+
+export async function fetchLatestEvalReport(): Promise<EvalReport | null> {
+  const res = await fetch('/api/self-healing-eval/report/latest', {
+    credentials: 'same-origin',
+  })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function fetchEvalReportMarkdown(): Promise<string | null> {
+  const res = await fetch('/api/self-healing-eval/report/latest?format=markdown', {
+    credentials: 'same-origin',
+  })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.text()
+}
+
+// ─── Self-Healing Eval — LLM question generation ─────────────────────────
+
+export interface EvalQuestionForUI {
+  id: string
+  level: EvalLevel
+  category: string
+  question: string
+  expected_behavior: string
+  must_include: string[]
+  must_not_claim: string[]
+  requires_code: boolean
+  requires_docs_grounding: boolean
+  topic_drift: boolean
+  false_premise: boolean
+  follow_up_of?: string
+  weight: number
+}
+
+export interface GenerateQuestionsRequest {
+  topic: string
+  grounding: string
+  mode: EvalMode
+  max_level?: EvalLevel
+}
+
+export interface GenerateQuestionsResponse {
+  cache_key: string
+  questions: EvalQuestionForUI[]
+  warnings: string[]
+}
+
+export interface GenerateQuestionsError {
+  error: string
+  message?: string
+  warnings?: string[]
+}
+
+export interface SuggestGroundingRequest {
+  subject_id: string
+  max_memories?: number
+}
+
+export interface SuggestGroundingResponse {
+  topic: string
+  grounding: string
+  source: {
+    subject_id: string
+    memory_count: number
+    sampled_memory_ids: string[]
+    grounding_truncated: boolean
+  }
+}
+
+export async function suggestGroundingFromSubject(
+  body: SuggestGroundingRequest,
+): Promise<SuggestGroundingResponse> {
+  const res = await fetch('/api/self-healing-eval/grounding/suggest', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (res.ok) return res.json()
+  let payload: { error?: string; message?: string } | null = null
+  try {
+    payload = await res.json()
+  } catch {
+    /* fall through */
+  }
+  const msg = payload?.message || payload?.error || `HTTP ${res.status}`
+  const err = new Error(msg) as Error & { status: number }
+  err.status = res.status
+  throw err
+}
+
+export async function generateEvalQuestions(
+  body: GenerateQuestionsRequest,
+): Promise<GenerateQuestionsResponse> {
+  const res = await fetch('/api/self-healing-eval/questions/generate', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (res.ok) return res.json()
+  let payload: GenerateQuestionsError | null = null
+  try {
+    payload = await res.json()
+  } catch {
+    /* fall through */
+  }
+  const msg = payload?.message || payload?.error || `HTTP ${res.status}`
+  const err = new Error(msg) as Error & {
+    status: number
+    warnings?: string[]
+  }
+  err.status = res.status
+  err.warnings = payload?.warnings
+  throw err
+}
