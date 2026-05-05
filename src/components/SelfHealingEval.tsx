@@ -9,7 +9,7 @@ import {
   type EvalMode,
   type EvalQuestionForUI,
   type EvalReport,
-  type EvalRunResponse,
+  type EvalRunStatus,
   type EvalStatus,
   type SubjectListItem,
 } from '../lib/api'
@@ -27,6 +27,10 @@ import { StatusChip } from './StatusChip'
  * Copilot improvement prompt.
  *
  * No automatic firing — this is a privileged, billable operation.
+ *
+ * The advanced overrides (custom question bank, candidate prompt) live
+ * inside `<details>` blocks so the default surface stays focused on the
+ * primary action: pick a mode, see the cost, run the eval.
  */
 
 /**
@@ -47,23 +51,28 @@ const SUGGESTED_STRICTER_PROMPT = [
   'Keep answers concise. For direct factual questions, lead with the exact retrieved fact.',
 ].join('\n')
 
-const MODES: Array<{ value: EvalMode; label: string; description: string; questions: number }> = [
+const MODES: Array<{
+  value: EvalMode
+  label: string
+  description: string
+  questions: number
+}> = [
   {
     value: 'smoke',
-    label: 'Smoke Eval',
-    description: 'Levels 0–1 — basic identity and comparison.',
+    label: 'Quick check',
+    description: 'Levels 0–1 — basic identity and comparison (~8 questions).',
     questions: 8,
   },
   {
     value: 'developer',
-    label: 'Developer Eval',
-    description: 'Levels 0–6 — install / API / code / debugging.',
+    label: 'Developer eval',
+    description: 'Levels 0–6 — install, API, code, debugging (~20 questions).',
     questions: 20,
   },
   {
     value: 'full',
-    label: 'Full Self-Healing Eval',
-    description: 'Levels 0–9 — adds architecture, false-premise, drift.',
+    label: 'Full eval',
+    description: 'Levels 0–9 — adds architecture, false-premise, drift (~40 questions).',
     questions: 40,
   },
 ]
@@ -76,7 +85,7 @@ function fmtScore(n: number): string {
   return n.toFixed(2)
 }
 
-function statusToChip(s: EvalStatus['latest'] extends infer L ? L extends { status: infer S } ? S : never : never): string {
+function statusToChip(s: EvalRunStatus): string {
   switch (s) {
     case 'pass':
       return 'ok'
@@ -94,6 +103,24 @@ function statusToChip(s: EvalStatus['latest'] extends infer L ? L extends { stat
   }
 }
 
+function statusToLabel(s: EvalRunStatus): string {
+  switch (s) {
+    case 'pass':
+      return 'Passed'
+    case 'partial':
+      return 'Partial'
+    case 'fail':
+      return 'Failed'
+    case 'running':
+      return 'Running'
+    case 'error':
+      return 'Error'
+    case 'idle':
+    default:
+      return 'Idle'
+  }
+}
+
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
@@ -105,6 +132,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 export function SelfHealingEval() {
   const [status, setStatus] = useState<EvalStatus | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
   const [report, setReport] = useState<EvalReport | null>(null)
   const [mode, setMode] = useState<EvalMode>('smoke')
   const [maxQuestions, setMaxQuestions] = useState<number | ''>('')
@@ -112,7 +140,6 @@ export function SelfHealingEval() {
   const [includeDrift, setIncludeDrift] = useState(true)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
-  const [lastRunResponse, setLastRunResponse] = useState<EvalRunResponse | null>(null)
   const [copyToast, setCopyToast] = useState<string | null>(null)
   // Subject picker drives BOTH (a) auto-suggesting topic+grounding from
   // that subject's compiled memories, and (b) the runtime subject the
@@ -163,6 +190,7 @@ export function SelfHealingEval() {
     try {
       const next = await fetchEvalStatus()
       setStatus(next)
+      setStatusError(null)
       // Pull the full report whenever the latest run id changes or a
       // run finished. Cheap because /report/latest is just a JSON read.
       // Skip the suppressed run id (set when the operator just clicked
@@ -184,9 +212,10 @@ export function SelfHealingEval() {
       ) {
         ignoreReportForRunIdRef.current = null
       }
-    } catch {
-      // Non-blocking — diagnostics page also has the smoke card; we
-      // just keep showing the last known status.
+    } catch (e) {
+      setStatusError(
+        e instanceof Error ? e.message : 'Failed to load eval status.',
+      )
     }
   }, [report])
 
@@ -332,7 +361,6 @@ export function SelfHealingEval() {
         body.baseline_run_id = status.latest.run_id
       }
       const r = await startEvalRun(body)
-      setLastRunResponse(r)
       if (!r.ok) {
         setStartError(r.error ?? 'Could not start the eval run.')
       } else {
@@ -383,16 +411,10 @@ export function SelfHealingEval() {
 
   const overallChip = report ? statusToChip(report.status) : 'unknown'
   const overallLabel = report
-    ? report.status === 'running'
+    ? statusToLabel(report.status)
+    : isRunning
       ? 'Running'
-      : report.status === 'pass'
-        ? 'PASS'
-        : report.status === 'partial'
-          ? 'PARTIAL'
-          : report.status === 'fail'
-            ? 'FAIL'
-            : report.status
-    : 'Not yet run'
+      : 'Not yet run'
 
   return (
     <section>
@@ -418,6 +440,13 @@ export function SelfHealingEval() {
           </div>
         )}
 
+        {statusError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+            <p className="font-medium">Could not load eval status.</p>
+            <p className="mt-0.5 text-theme-muted">{statusError}</p>
+          </div>
+        )}
+
         {/* ── Header / status row ── */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -429,12 +458,9 @@ export function SelfHealingEval() {
                 </span>
               )}
             </p>
-            {status?.latest && (
-              <p className="text-[11px] text-theme-muted mt-0.5">
-                Last run id: <code>{status.latest.run_id}</code>
-                {status.latest.finished_at ? ` · finished ${new Date(status.latest.finished_at).toLocaleString()}` : ''}
-              </p>
-            )}
+            <p className="text-[11px] text-theme-muted mt-0.5">
+              LLM-graded eval against the demo agent. Operator-triggered.
+            </p>
           </div>
           <StatusChip status={overallChip} />
         </div>
@@ -493,249 +519,255 @@ export function SelfHealingEval() {
           </label>
         </div>
 
-        {/* ── LLM-driven question generation (optional) ──
-            Operator-pasted topic + grounding text drives an
-            on-demand question bank from the configured LLM judge.
-            Generated bank is cached server-side by hash so a
-            regenerate-then-run sequence is reproducible. When no
-            bank is generated for the current (topic, grounding,
-            mode), the run falls back to the static built-in bank. */}
-        <div className="space-y-3 pt-3 border-t border-theme-border/50">
-          <p className="text-[10px] uppercase tracking-wide text-theme-muted">
+        {/* ── Advanced: question bank override ── */}
+        <details className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)]">
+          <summary className="cursor-pointer px-3 py-2 text-xs text-theme-secondary select-none">
             Question bank — optional override
-          </p>
-
-          {/* Subject picker. Drives both the LLM auto-suggestion of
-              topic+grounding AND the runtime subject the demo agent
-              answers from during the conversation phase. Smoke probes
-              upstream are independent and always use their own demo
-              subject. When no subject is picked, the eval falls back
-              to a hardcoded demo subject so it can't accidentally
-              pollute a real customer subject. */}
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 text-xs">
-            <label className="flex flex-col gap-1">
-              <span className="text-theme-muted">
-                Subject (drives suggestion + runtime conversation)
+            {generatedBankIsLive && (
+              <span className="ml-2 text-[10px] text-emerald-400">
+                bank ready
               </span>
-              <select
-                className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary"
-                value={subjectId}
-                disabled={!available || isRunning || suggesting}
-                onChange={(e) => {
-                  setSubjectId(e.target.value)
-                  setSuggestSource(null)
-                  setSuggestError(null)
-                }}
-              >
-                <option value="">
-                  — Built-in demo subject (no eval against a real subject) —
-                </option>
-                {(subjects ?? []).map((s) => (
-                  <option key={s.subject_id} value={s.subject_id}>
-                    {s.subject_id} · {s.memory_count} memories · {s.episode_count}{' '}
-                    episodes
-                  </option>
-                ))}
-              </select>
-              {subjectsError && (
-                <span className="text-[11px] text-amber-400">
-                  Subjects could not be loaded: {subjectsError}
+            )}
+          </summary>
+          <div className="px-3 pb-3 space-y-3">
+            <p className="text-[11px] text-theme-muted">
+              Skip this and the eval uses the built-in question bank. Use this to
+              evaluate the agent against your own docs or a specific subject's
+              compiled memories.
+            </p>
+
+            {/* Subject picker. Drives both the LLM auto-suggestion of
+                topic+grounding AND the runtime subject the demo agent
+                answers from during the conversation phase. Smoke probes
+                upstream are independent and always use their own demo
+                subject. When no subject is picked, the eval falls back
+                to a hardcoded demo subject so it can't accidentally
+                pollute a real customer subject. */}
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 text-xs">
+              <label className="flex flex-col gap-1">
+                <span className="text-theme-muted">
+                  Subject (drives suggestion + runtime conversation)
                 </span>
-              )}
-            </label>
-            <div className="flex items-end">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={onSuggestGrounding}
-                loading={suggesting}
-                disabled={!available || isRunning || suggesting || !subjectId}
-                aria-label="Auto-suggest topic and grounding from selected subject"
-              >
-                {suggesting ? 'Suggesting…' : 'Auto-suggest topic + grounding'}
-              </Button>
-            </div>
-            {suggestError && (
-              <div className="sm:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-[11px] text-red-400">
-                {suggestError}
-              </div>
-            )}
-            {suggestSource && (
-              <p className="sm:col-span-2 text-[11px] text-theme-muted">
-                Suggested from {suggestSource.memory_count} compiled memories of{' '}
-                <code>{suggestSource.subject_id}</code>. Edit topic/grounding below
-                if you want before generating.
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 text-xs">
-            <label className="flex flex-col gap-1">
-              <span className="text-theme-muted">Topic</span>
-              <input
-                type="text"
-                placeholder="e.g. Statewave memory runtime"
-                className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary"
-                value={topic}
-                disabled={!available || isRunning || generating}
-                onChange={(e) => setTopic(e.target.value)}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-theme-muted">
-                Grounding (paste source-of-truth text — capped + redacted)
-              </span>
-              <textarea
-                rows={5}
-                placeholder="Paste the canonical docs / pack content for this topic. Required for `must_include` / `must_not_claim` to be concrete."
-                className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary font-mono text-[11px]"
-                value={grounding}
-                disabled={!available || isRunning || generating}
-                onChange={(e) => setGrounding(e.target.value)}
-              />
-            </label>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] text-theme-muted">
-                {generatedBankIsLive
-                  ? `Generated bank ready (${generatedQuestions?.length ?? 0} questions). Run will use it.`
-                  : generatedQuestions
-                    ? 'Inputs changed — generated bank is stale. Run will use the built-in bank unless you regenerate.'
-                    : 'No generated bank yet. Run will use the built-in static bank.'}
-              </p>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={onGenerate}
-                loading={generating}
-                disabled={
-                  !available ||
-                  isRunning ||
-                  generating ||
-                  topic.trim().length === 0 ||
-                  grounding.trim().length < 20
-                }
-                aria-label="Generate questions from topic and grounding"
-              >
-                {generating ? 'Generating…' : 'Generate questions'}
-              </Button>
-            </div>
-            {generateError && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-[11px] text-red-400">
-                {generateError}
-              </div>
-            )}
-            {generateWarnings.length > 0 && (
-              <ul className="text-[11px] text-amber-400 list-disc pl-5 space-y-0.5">
-                {generateWarnings.slice(0, 6).map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
-            )}
-            {generatedQuestions && (
-              <details
-                open={previewOpen}
-                onToggle={(e) => setPreviewOpen((e.target as HTMLDetailsElement).open)}
-                className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)]"
-              >
-                <summary className="cursor-pointer px-3 py-2 text-xs text-theme-secondary select-none">
-                  Generated questions preview ({generatedQuestions.length})
-                  {!generatedBankIsLive && (
-                    <span className="ml-2 text-amber-400">[stale]</span>
-                  )}
-                </summary>
-                <ol className="text-[11px] text-theme-muted divide-y divide-theme-border/50">
-                  {generatedQuestions.slice(0, 30).map((q) => (
-                    <li key={q.id} className="px-3 py-2">
-                      <p className="text-theme-secondary">
-                        <span className="font-mono mr-2">L{q.level}</span>
-                        <span className="text-theme-muted mr-2">{q.category}</span>
-                        <span className="font-mono text-[10px]">{q.id}</span>
-                      </p>
-                      <p className="mt-0.5 text-theme-muted">{q.question}</p>
-                      {q.must_include.length > 0 && (
-                        <p className="mt-0.5 text-[10px]">
-                          <span className="text-theme-muted">must_include:</span>{' '}
-                          {q.must_include.join(' · ')}
-                        </p>
-                      )}
-                    </li>
+                <select
+                  className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary"
+                  value={subjectId}
+                  disabled={!available || isRunning || suggesting}
+                  onChange={(e) => {
+                    setSubjectId(e.target.value)
+                    setSuggestSource(null)
+                    setSuggestError(null)
+                  }}
+                >
+                  <option value="">
+                    — Built-in demo subject (no eval against a real subject) —
+                  </option>
+                  {(subjects ?? []).map((s) => (
+                    <option key={s.subject_id} value={s.subject_id}>
+                      {s.subject_id} · {s.memory_count} memories · {s.episode_count}{' '}
+                      episodes
+                    </option>
                   ))}
-                  {generatedQuestions.length > 30 && (
-                    <li className="px-3 py-2 text-theme-muted">
-                      … and {generatedQuestions.length - 30} more
-                    </li>
-                  )}
-                </ol>
-              </details>
-            )}
-          </div>
-        </div>
+                </select>
+                {subjectsError && (
+                  <span className="text-[11px] text-amber-400">
+                    Subjects could not be loaded: {subjectsError}
+                  </span>
+                )}
+              </label>
+              <div className="flex items-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={onSuggestGrounding}
+                  loading={suggesting}
+                  disabled={!available || isRunning || suggesting || !subjectId}
+                  aria-label="Auto-suggest topic and grounding from selected subject"
+                >
+                  {suggesting ? 'Suggesting…' : 'Auto-suggest topic + grounding'}
+                </Button>
+              </div>
+              {suggestError && (
+                <div className="sm:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-[11px] text-red-400">
+                  {suggestError}
+                </div>
+              )}
+              {suggestSource && (
+                <p className="sm:col-span-2 text-[11px] text-theme-muted">
+                  Suggested from {suggestSource.memory_count} compiled memories of{' '}
+                  <code>{suggestSource.subject_id}</code>. Edit topic/grounding below
+                  if you want before generating.
+                </p>
+              )}
+            </div>
 
-        {/* ── Eval-only agent prompt override (v1 fix-test loop) ──
+            <div className="grid grid-cols-1 gap-3 text-xs">
+              <label className="flex flex-col gap-1">
+                <span className="text-theme-muted">Topic</span>
+                <input
+                  type="text"
+                  placeholder="e.g. Statewave memory runtime"
+                  className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary"
+                  value={topic}
+                  disabled={!available || isRunning || generating}
+                  onChange={(e) => setTopic(e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-theme-muted">
+                  Grounding (paste source-of-truth text — capped + redacted)
+                </span>
+                <textarea
+                  rows={5}
+                  placeholder="Paste the canonical docs / pack content for this topic. Required for `must_include` / `must_not_claim` to be concrete."
+                  className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary font-mono text-[11px]"
+                  value={grounding}
+                  disabled={!available || isRunning || generating}
+                  onChange={(e) => setGrounding(e.target.value)}
+                />
+              </label>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] text-theme-muted">
+                  {generatedBankIsLive
+                    ? `Generated bank ready (${generatedQuestions?.length ?? 0} questions). Run will use it.`
+                    : generatedQuestions
+                      ? 'Inputs changed — generated bank is stale. Run will use the built-in bank unless you regenerate.'
+                      : 'No generated bank yet. Run will use the built-in static bank.'}
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={onGenerate}
+                  loading={generating}
+                  disabled={
+                    !available ||
+                    isRunning ||
+                    generating ||
+                    topic.trim().length === 0 ||
+                    grounding.trim().length < 20
+                  }
+                  aria-label="Generate questions from topic and grounding"
+                >
+                  {generating ? 'Generating…' : 'Generate questions'}
+                </Button>
+              </div>
+              {generateError && (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-[11px] text-red-400">
+                  {generateError}
+                </div>
+              )}
+              {generateWarnings.length > 0 && (
+                <ul className="text-[11px] text-amber-400 list-disc pl-5 space-y-0.5">
+                  {generateWarnings.slice(0, 6).map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              )}
+              {generatedQuestions && (
+                <details
+                  open={previewOpen}
+                  onToggle={(e) => setPreviewOpen((e.target as HTMLDetailsElement).open)}
+                  className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)]"
+                >
+                  <summary className="cursor-pointer px-3 py-2 text-xs text-theme-secondary select-none">
+                    Generated questions preview ({generatedQuestions.length})
+                    {!generatedBankIsLive && (
+                      <span className="ml-2 text-amber-400">[stale]</span>
+                    )}
+                  </summary>
+                  <ol className="text-[11px] text-theme-muted divide-y divide-theme-border/50">
+                    {generatedQuestions.slice(0, 30).map((q) => (
+                      <li key={q.id} className="px-3 py-2">
+                        <p className="text-theme-secondary">
+                          <span className="font-mono mr-2">L{q.level}</span>
+                          <span className="text-theme-muted mr-2">{q.category}</span>
+                          <span className="font-mono text-[10px]">{q.id}</span>
+                        </p>
+                        <p className="mt-0.5 text-theme-muted">{q.question}</p>
+                        {q.must_include.length > 0 && (
+                          <p className="mt-0.5 text-[10px]">
+                            <span className="text-theme-muted">must_include:</span>{' '}
+                            {q.must_include.join(' · ')}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                    {generatedQuestions.length > 30 && (
+                      <li className="px-3 py-2 text-theme-muted">
+                        … and {generatedQuestions.length - 30} more
+                      </li>
+                    )}
+                  </ol>
+                </details>
+              )}
+            </div>
+          </div>
+        </details>
+
+        {/* ── Advanced: agent prompt override (eval-only, fix-test loop) ──
             Operator can paste a candidate system prompt; the runner
             forwards it to the demo agent for THIS run only. Never
             persisted as production config — the warning text says so.
             Server-side redacts + caps before storage. */}
-        <div className="space-y-3 pt-3 border-t border-theme-border/50">
-          <p className="text-[10px] uppercase tracking-wide text-theme-muted">
+        <details className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)]">
+          <summary className="cursor-pointer px-3 py-2 text-xs text-theme-secondary select-none">
             Agent prompt override — eval-only
-          </p>
-          <div className="grid grid-cols-1 gap-2 text-xs">
-            <label className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                checked={overrideEnabled}
-                disabled={!available || isRunning}
-                onChange={(e) => setOverrideEnabled(e.target.checked)}
-                className="mt-0.5"
-              />
-              <span>
-                Use override for next run
-                <span className="block text-theme-muted text-[11px] mt-0.5">
-                  Temporary candidate prompt for this run only.{' '}
-                  <strong>Does not change production agent behavior.</strong>{' '}
-                  Server-side redacts secrets + caps length.
-                </span>
-              </span>
-            </label>
-            <textarea
-              rows={6}
-              placeholder="Paste a candidate demo-agent system prompt here. The eval will run against this prompt instead of the production one for this run only."
-              className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary font-mono text-[11px]"
-              value={promptOverride}
-              disabled={!available || isRunning || !overrideEnabled}
-              onChange={(e) => setPromptOverride(e.target.value)}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setPromptOverride(SUGGESTED_STRICTER_PROMPT)
-                  setOverrideEnabled(true)
-                }}
-                disabled={!available || isRunning}
-                aria-label="Insert suggested stricter docs-grounded prompt"
-              >
-                Insert suggested stricter prompt
-              </Button>
-              <label className="flex items-center gap-1.5 text-[11px] text-theme-muted ml-auto">
+          </summary>
+          <div className="px-3 pb-3 space-y-3">
+            <div className="grid grid-cols-1 gap-2 text-xs">
+              <label className="flex items-start gap-2">
                 <input
                   type="checkbox"
-                  checked={compareToPrevious}
-                  disabled={!available || isRunning || !status?.latest}
-                  onChange={(e) => setCompareToPrevious(e.target.checked)}
+                  checked={overrideEnabled}
+                  disabled={!available || isRunning}
+                  onChange={(e) => setOverrideEnabled(e.target.checked)}
+                  className="mt-0.5"
                 />
-                Compare next run against latest previous run
-                {!status?.latest && (
-                  <span className="text-amber-400">
-                    (no previous run yet)
+                <span>
+                  Use override for next run
+                  <span className="block text-theme-muted text-[11px] mt-0.5">
+                    Temporary candidate prompt for this run only.{' '}
+                    <strong>Does not change production agent behavior.</strong>{' '}
+                    Server-side redacts secrets + caps length.
                   </span>
-                )}
+                </span>
               </label>
+              <textarea
+                rows={6}
+                placeholder="Paste a candidate demo-agent system prompt here. The eval will run against this prompt instead of the production one for this run only."
+                className="rounded-md border border-theme-border bg-[var(--theme-surface-1)] px-2 py-1.5 text-theme-primary font-mono text-[11px]"
+                value={promptOverride}
+                disabled={!available || isRunning || !overrideEnabled}
+                onChange={(e) => setPromptOverride(e.target.value)}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setPromptOverride(SUGGESTED_STRICTER_PROMPT)
+                    setOverrideEnabled(true)
+                  }}
+                  disabled={!available || isRunning}
+                  aria-label="Insert suggested stricter docs-grounded prompt"
+                >
+                  Insert suggested stricter prompt
+                </Button>
+                <label className="flex items-center gap-1.5 text-[11px] text-theme-muted ml-auto">
+                  <input
+                    type="checkbox"
+                    checked={compareToPrevious}
+                    disabled={!available || isRunning || !status?.latest}
+                    onChange={(e) => setCompareToPrevious(e.target.checked)}
+                  />
+                  Compare next run against latest previous run
+                  {!status?.latest && (
+                    <span className="text-amber-400">(no previous run yet)</span>
+                  )}
+                </label>
+              </div>
             </div>
           </div>
-        </div>
+        </details>
 
         {/* ── Pre-flight cost + run button ── */}
         <div className="flex items-center justify-between gap-3 pt-3 border-t border-theme-border/50">
@@ -759,9 +791,9 @@ export function SelfHealingEval() {
           </Button>
         </div>
 
-        {(startError || lastRunResponse?.error) && (
+        {startError && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
-            {startError ?? lastRunResponse?.error}
+            {startError}
           </div>
         )}
 
@@ -937,6 +969,26 @@ export function SelfHealingEval() {
               ))}
             </ul>
           </div>
+        )}
+
+        {/* ── Run details (collapsed by default — keeps the surface tidy) ── */}
+        {report && status?.latest && (
+          <details className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)]">
+            <summary className="cursor-pointer px-3 py-2 text-xs text-theme-secondary select-none">
+              Run details
+            </summary>
+            <div className="px-3 pb-3 text-[11px] text-theme-muted space-y-0.5">
+              <p>
+                Run id: <code>{status.latest.run_id}</code>
+              </p>
+              {status.latest.finished_at && (
+                <p>
+                  Finished: {new Date(status.latest.finished_at).toLocaleString()}
+                </p>
+              )}
+              <p>Mode: {status.latest.mode}</p>
+            </div>
+          </details>
         )}
 
         {/* ── Copy buttons ── */}

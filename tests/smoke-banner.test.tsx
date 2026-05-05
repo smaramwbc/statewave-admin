@@ -91,7 +91,7 @@ describe('SmokeCheckBanner — rendering rules', () => {
     await waitFor(() => {
       expect(screen.getByText(/First-run system check pending/i)).toBeInTheDocument()
     })
-    const link = screen.getByText(/Run now →/i).closest('a')
+    const link = screen.getByText(/Open diagnostics →/i).closest('a')
     expect(link).toHaveAttribute('href', '/diagnostics')
   })
 
@@ -117,7 +117,7 @@ describe('SmokeCheckBanner — rendering rules', () => {
     await waitFor(() => {
       expect(screen.getByText(/needs attention/i)).toBeInTheDocument()
     })
-    expect(screen.getByText(/View diagnostics →/i)).toBeInTheDocument()
+    expect(screen.getByText(/Open diagnostics →/i)).toBeInTheDocument()
   })
 
   it('renders nothing when the last run succeeded (clean dashboard)', async () => {
@@ -262,7 +262,7 @@ describe('SmokeCheckBanner — independence from Self-Healing Eval', () => {
       await new Promise((r) => setTimeout(r, 0))
     })
     expect(screen.queryByText(/needs attention/i)).toBeNull()
-    expect(screen.queryByText(/View diagnostics →/i)).toBeNull()
+    expect(screen.queryByText(/Open diagnostics →/i)).toBeNull()
     expect(screen.queryByText(/eval/i)).toBeNull()
   })
 })

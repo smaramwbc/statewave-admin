@@ -12,7 +12,7 @@ import { StatusDot, StatusChip } from './StatusChip'
 import { Button, SectionLabel } from './ui'
 
 /**
- * "System smoke check" dashboard card.
+ * "System smoke check" card on /diagnostics.
  *
  * Drives the first-admin-run flow:
  *   1. Reads /api/admin/smoke/status on mount.
@@ -20,13 +20,16 @@ import { Button, SectionLabel } from './ui'
  *      A localStorage flag debounces the auto-fire so reloads during a slow
  *      run don't pile on duplicate requests; the server-side single-flight
  *      is the actual safety net.
- *   3. Operators can re-run the check manually with the action button.
+ *   3. If a run is already in flight on the server (another operator/tab
+ *      kicked it off), we transparently poll until it lands instead of
+ *      flashing "not yet run".
+ *   4. Operators can re-run the check manually with the action button.
  *
- * Failure here never blocks the rest of the dashboard — the card just
- * surfaces the error with actionable next steps.
+ * Failure here never blocks the rest of the page.
  */
 
 const AUTOFIRE_KEY = 'sw_admin:smoke:autofired_v1'
+const STATUS_POLL_INTERVAL_MS = 2000
 
 function StepRow({
   label,
@@ -116,6 +119,7 @@ export function SystemSmokeCheck() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const autofireRef = useRef(false)
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -158,10 +162,14 @@ export function SystemSmokeCheck() {
       if (cancelled || !next) return
       if (!next.enabled) return
       if (autofireRef.current) return
+      // If a run is already in flight on the server (another operator
+      // started it), we'll pick it up via the polling effect below — no
+      // need to auto-fire a duplicate.
+      if (next.is_running) return
       // Auto-fire only on the very first install AND only once per browser
       // session. The server is the source of truth; the localStorage flag
       // just avoids a tight reload loop while a slow run is in flight.
-      if (next.has_run || next.is_running) return
+      if (next.has_run) return
       let alreadyAutofired = false
       try {
         alreadyAutofired = window.localStorage.getItem(AUTOFIRE_KEY) === '1'
@@ -183,9 +191,30 @@ export function SystemSmokeCheck() {
     }
   }, [refresh, runOnce])
 
+  // Poll while the server reports a run in flight (started by another
+  // operator/tab, or our own POST that we somehow lost track of). Stops
+  // as soon as is_running flips false.
+  useEffect(() => {
+    const stop = () => {
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+    }
+    if (!status?.is_running) {
+      stop()
+      return stop
+    }
+    pollTimerRef.current = setTimeout(() => {
+      void refresh()
+    }, STATUS_POLL_INTERVAL_MS)
+    return stop
+  }, [status, refresh])
+
   // ─── Render ──────────────────────────────────────────────────────────────
   const result = status?.last_result ?? null
-  const overallStatus: SmokeResult['status'] = running
+  const isRunningOnServer = !!status?.is_running
+  const overallStatus: SmokeResult['status'] = running || isRunningOnServer
     ? 'running'
     : status === null
       ? 'never_run'
@@ -206,6 +235,8 @@ export function SystemSmokeCheck() {
               ? 'Smoke check disabled'
               : 'Smoke check not yet run'
 
+  const showWhatRuns = !result && status?.enabled !== false && !error
+
   return (
     <section>
       <SectionLabel>System smoke check</SectionLabel>
@@ -214,9 +245,8 @@ export function SystemSmokeCheck() {
           <div className="min-w-0">
             <p className="text-sm font-medium text-theme-primary">{headerLabel}</p>
             <p className="text-[11px] text-theme-muted mt-0.5">
-              {status?.subject_id
-                ? `Demo subject: ${status.subject_id}`
-                : 'First-run validation against the connected Statewave backend.'}
+              End-to-end probe: ingest a demo episode, compile it, verify
+              webhook delivery.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -235,10 +265,15 @@ export function SystemSmokeCheck() {
         )}
 
         {!status?.enabled && status !== null && (
-          <p className="text-xs text-theme-muted">
-            Smoke check is turned off via <code>ADMIN_SMOKE_DISABLED=true</code>.
-            Unset it to re-enable the first-run validation.
-          </p>
+          <div className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)] p-3 text-xs space-y-1.5">
+            <p className="text-theme-secondary">
+              First-run validation is turned off for this deployment.
+            </p>
+            <p className="text-theme-muted">
+              Unset <code>ADMIN_SMOKE_DISABLED</code> on the admin server to
+              re-enable it.
+            </p>
+          </div>
         )}
 
         {result && (
@@ -284,11 +319,38 @@ export function SystemSmokeCheck() {
           </div>
         )}
 
-        {!result && status?.enabled !== false && !error && !running && (
-          <p className="text-xs text-theme-muted">
-            The smoke check will run automatically the first time an authenticated
-            operator opens this dashboard. You can also trigger it manually below.
-          </p>
+        {showWhatRuns && (
+          <div className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)] p-3 text-xs space-y-2">
+            <p className="text-theme-secondary">
+              {isRunningOnServer || running
+                ? 'Smoke check is running. This usually takes a few seconds.'
+                : 'On first visit, Statewave automatically runs the smoke check. You can also start it manually below.'}
+            </p>
+            <details className="text-theme-muted">
+              <summary className="cursor-pointer text-theme-secondary select-none">
+                What runs?
+              </summary>
+              <ol className="mt-1.5 list-decimal pl-4 space-y-0.5 leading-relaxed">
+                <li>
+                  Confirms the Statewave backend is reachable and the admin
+                  scope is valid.
+                </li>
+                <li>
+                  Ingests a single demo episode under the dedicated{' '}
+                  <code>statewave-demo:first-admin-run</code> subject and
+                  triggers a compile job.
+                </li>
+                <li>
+                  Inspects webhook stats to confirm delivery is wired up
+                  (skipped cleanly when no webhook URL is configured).
+                </li>
+              </ol>
+              <p className="mt-1.5">
+                The demo subject is isolated and clearly labeled — safe to
+                delete or re-run any time.
+              </p>
+            </details>
+          </div>
         )}
 
         <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-theme-border/50">
@@ -299,11 +361,11 @@ export function SystemSmokeCheck() {
             variant="secondary"
             size="sm"
             onClick={runOnce}
-            loading={running}
-            disabled={status?.enabled === false}
+            loading={running || isRunningOnServer}
+            disabled={status?.enabled === false || isRunningOnServer}
             aria-label="Run smoke check again"
           >
-            {running ? 'Running…' : 'Run smoke check again'}
+            {running || isRunningOnServer ? 'Running…' : 'Run smoke check again'}
           </Button>
         </div>
       </div>
