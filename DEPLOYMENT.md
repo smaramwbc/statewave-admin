@@ -36,6 +36,23 @@ ADMIN_AUTH_DISABLED=false
 # Optional: trust a fronting identity proxy
 ADMIN_TRUST_GATEWAY_HEADERS=false
 ADMIN_ALLOWED_EMAILS=
+
+# Optional: first-admin-run smoke check
+ADMIN_SMOKE_DISABLED=false
+ADMIN_SMOKE_STATE_DIR=
+
+# Optional: Self-Healing Eval (admin-triggered LLM evaluation)
+ADMIN_SELF_HEALING_EVAL_ENABLED=false
+ADMIN_EVAL_LLM_PROVIDER=             # openai | anthropic | openai-compatible
+ADMIN_EVAL_LLM_MODEL=
+ADMIN_EVAL_LLM_API_KEY=
+ADMIN_EVAL_LLM_BASE_URL=             # required for openai-compatible (LiteLLM proxy, Azure-via-LiteLLM, vLLM, …)
+ADMIN_DEMO_AGENT_URL=
+ADMIN_DEMO_AGENT_API_KEY=
+ADMIN_DEMO_AGENT_BODY_FORMAT=default # or "statewave-web" to point at /api/widget-chat
+ADMIN_DEMO_AGENT_PERSONA=            # only used by statewave-web shape (default: statewave-support)
+ADMIN_DEMO_WEBHOOK_URL=              # reserved / informational in MVP — see README
+ADMIN_EVAL_STORAGE_PATH=             # optional persistence directory
 ```
 
 Generate strong values:
@@ -208,6 +225,33 @@ Even with the built-in gate, **a fronting identity layer is recommended** for te
 | VPN-only | Network identity | Existing infra |
 
 These compose with — they do not replace — the built-in gate.
+
+---
+
+## First-admin-run smoke check
+
+The **Diagnostics** page (`/diagnostics`) runs a one-time end-to-end validation against the connected backend the first time an authenticated operator opens it. It ingests a tiny demo episode against `subject_id="statewave-demo:first-admin-run"`, triggers an async compile (so the run is visible under `/jobs`), and inspects whether webhook delivery is wired up. The Overview page surfaces a slim banner pointing here only when smoke has never run or the last run failed; on a healthy install Overview stays clean.
+
+- **Endpoints (auth-gated, server-side only):** `GET /api/admin/smoke/status`, `POST /api/admin/smoke/run`.
+- **Idempotent:** the demo subject id is fixed, the server single-flights concurrent runs, and the operator can re-trigger it from the **Run smoke check again** button on the Dashboard.
+- **Disable:** set `ADMIN_SMOKE_DISABLED=true`. The card renders a neutral "disabled" state and the run endpoint refuses to contact the backend.
+- **Persistence:** in-memory by default. Set `ADMIN_SMOKE_STATE_DIR=/var/lib/statewave-admin` (or any writable directory) if you want last-run state to survive restarts.
+- **Webhooks not configured?** That is a neutral state, not a failure — the card shows "Webhooks not configured" and the overall status remains success.
+
+See [README.md](README.md#first-admin-run-smoke-check) for the user-facing description.
+
+## Self-Healing Eval
+
+A second card on `/diagnostics` runs an LLM-graded multi-turn eval against a demo support agent. Admin-triggered only — never runs automatically.
+
+- **Disabled by default.** Set `ADMIN_SELF_HEALING_EVAL_ENABLED=true` plus the `ADMIN_EVAL_LLM_*` and `ADMIN_DEMO_AGENT_*` variables to enable. For LiteLLM-proxy or Azure-OpenAI keys, use `ADMIN_EVAL_LLM_PROVIDER=openai-compatible` and set `ADMIN_EVAL_LLM_BASE_URL` to the proxy/gateway URL.
+- **Cost.** ~`questions × 2` LLM calls per run (one demo-agent call + one judge call). Defaults: 8 / 20 / 40 questions for smoke / developer / full modes. The card shows the pre-flight estimate before you start.
+- **No automatic firing.** Single-flighted server-side; concurrent runs share the same in-flight promise.
+- **Storage.** In-memory by default. Set `ADMIN_EVAL_STORAGE_PATH=/var/lib/statewave-admin/eval` to persist redacted JSON reports across restarts.
+- **Webhook validation.** `ADMIN_DEMO_WEBHOOK_URL` is reserved / informational in this MVP. The eval reuses the existing Statewave smoke-check path for webhook delivery observation — it inspects whatever destination is configured via `STATEWAVE_WEBHOOK_URL` on the Statewave server.
+- **Reports.** JSON + Markdown + a deterministic Copilot improvement prompt. All API keys, bearer tokens, and DB credentials are redacted in stored output.
+
+See [README.md](README.md#self-healing-eval) for the full feature description, levels, and endpoint reference.
 
 ---
 

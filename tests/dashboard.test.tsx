@@ -2,7 +2,13 @@ import React from 'react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import App from '../src/App'
-import { isSessionUrl, makeSessionMock } from './setup'
+import {
+  isSessionUrl,
+  isSmokeRunUrl,
+  isSmokeStatusUrl,
+  makeSessionMock,
+  makeSmokeStatusMock,
+} from './setup'
 
 const mockDashboard = {
   readiness: {
@@ -37,6 +43,9 @@ const mockUsage = {
 function mockFetchSuccess() {
   vi.spyOn(global, 'fetch').mockImplementation((url) => {
     if (isSessionUrl(url)) return Promise.resolve(makeSessionMock())
+    if (isSmokeStatusUrl(url) || isSmokeRunUrl(url)) {
+      return Promise.resolve(makeSmokeStatusMock())
+    }
     const u = typeof url === 'string' ? url : url.toString()
     // URL contains /admin/usage via the proxy path parameter
     if (u.includes('usage')) {

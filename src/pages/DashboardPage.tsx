@@ -13,6 +13,7 @@ import {
 } from '../components/ui'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { RefreshControl } from '../components/RefreshControl'
+import { SmokeCheckBanner } from '../components/SmokeCheckBanner'
 import { fetchDashboard, fetchUsage, type DashboardData, type UsageData, type UsageWindow } from '../lib/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -75,6 +76,13 @@ export function DashboardPage() {
             />
           }
         />
+
+      {/* First-admin-run nudge. The smoke check lives on /diagnostics —
+          this banner just surfaces on Overview when there's something
+          for the operator to do (no run yet, or the last run failed).
+          On a healthy installed deployment it renders nothing, keeping
+          the dashboard focused on live operational metrics. */}
+      <SmokeCheckBanner />
 
       {error && !data && (
         <ErrorState
