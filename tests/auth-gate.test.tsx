@@ -61,8 +61,45 @@ const USAGE_BODY = {
   tenant_id: null,
 }
 
+const SMOKE_STATUS_DONE = {
+  enabled: true,
+  has_run: true,
+  is_running: false,
+  subject_id: 'statewave-demo:first-admin-run',
+  last_result: {
+    status: 'success',
+    started_at: '2026-04-01T00:00:00Z',
+    finished_at: '2026-04-01T00:00:01Z',
+    duration_ms: 1000,
+    backend: { status: 'ok', detail: 'Backend reachable.' },
+    demo_job: {
+      status: 'ok',
+      detail: 'Demo job completed.',
+      subject_id: 'statewave-demo:first-admin-run',
+      episode_id: 'ep-1',
+      job_id: 'job-1',
+      memories_created: 1,
+      job_mode: 'async',
+      subject_visible: true,
+    },
+    demo_webhook: {
+      status: 'ok',
+      detail: 'Webhook delivered.',
+      state: 'configured_delivered',
+      total_before: 0,
+      total_after: 1,
+      sample: { id: 'wh-1', event: 'episode.created', status: 'delivered', http_status: 200 },
+    },
+    error: null,
+  },
+}
+
 function dashboardOrUsage(url: string): Response {
-  if (decodeURIComponent(url).includes('/admin/usage')) {
+  const decoded = decodeURIComponent(url)
+  if (decoded.includes('/api/admin/smoke')) {
+    return jsonRes(200, SMOKE_STATUS_DONE)
+  }
+  if (decoded.includes('/admin/usage')) {
     return jsonRes(200, USAGE_BODY)
   }
   return jsonRes(200, DASH_BODY)
@@ -108,26 +145,7 @@ describe('Frontend auth gate', () => {
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = typeof url === 'string' ? url : url.toString()
       if (u.includes('/api/auth/session')) return Promise.resolve(jsonRes(200, SESSION_OK))
-      const decoded = decodeURIComponent(u)
-      if (decoded.includes('/admin/usage')) {
-        return Promise.resolve(jsonRes(200, {
-          episodes: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          memories: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          compile_jobs: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          webhooks: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          active_subjects: { '7d': 0, '30d': 0, total: 0 },
-          generated_at: '2026-04-30T12:00:00Z',
-          tenant_id: null,
-        }))
-      }
-      return Promise.resolve(jsonRes(200, {
-        readiness: { status: 'ok', checks: [] },
-        migration: { current_revision: null, expected_head: '', is_compatible: true, pending_count: 0 },
-        counts: { episodes: 0, memories: 0, subjects: 0 },
-        jobs: {},
-        webhooks: { total: 0, delivered: 0, pending: 0, dead_letter: 0 },
-        health_distribution: null,
-      }))
+      return Promise.resolve(dashboardOrUsage(u))
     })
     await act(async () => { render(<App />) })
     await waitFor(() => {
@@ -141,26 +159,7 @@ describe('Frontend auth gate', () => {
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = typeof url === 'string' ? url : url.toString()
       if (u.includes('/api/auth/session')) return Promise.resolve(jsonRes(200, SESSION_AUTH_DISABLED))
-      const decoded = decodeURIComponent(u)
-      if (decoded.includes('/admin/usage')) {
-        return Promise.resolve(jsonRes(200, {
-          episodes: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          memories: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          compile_jobs: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          webhooks: { today: 0, '7d': 0, '30d': 0, total: 0 },
-          active_subjects: { '7d': 0, '30d': 0, total: 0 },
-          generated_at: '2026-04-30T12:00:00Z',
-          tenant_id: null,
-        }))
-      }
-      return Promise.resolve(jsonRes(200, {
-        readiness: { status: 'ok', checks: [] },
-        migration: { current_revision: null, expected_head: '', is_compatible: true, pending_count: 0 },
-        counts: { episodes: 0, memories: 0, subjects: 0 },
-        jobs: {},
-        webhooks: { total: 0, delivered: 0, pending: 0, dead_letter: 0 },
-        health_distribution: null,
-      }))
+      return Promise.resolve(dashboardOrUsage(u))
     })
     await act(async () => { render(<App />) })
     await waitFor(() => {

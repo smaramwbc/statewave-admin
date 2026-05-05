@@ -115,11 +115,11 @@ describe('Admin shell mobile drawer', () => {
     })
   })
 
-  it('renders all four primary nav items inside the drawer', () => {
+  it('renders all primary nav items inside the drawer', () => {
     renderShell()
     const drawer = document.getElementById('admin-mobile-drawer')
     expect(drawer).not.toBeNull()
-    for (const label of ['Overview', 'Subjects', 'Jobs', 'Webhooks']) {
+    for (const label of ['Overview', 'Subjects', 'Jobs', 'Webhooks', 'Diagnostics']) {
       expect(within(drawer!).getByText(label)).toBeInTheDocument()
     }
   })
