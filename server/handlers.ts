@@ -19,6 +19,7 @@ import {
   type RequestLike,
 } from './auth.js'
 import { getProxyConfig, proxyAdminRequest } from './proxy.js'
+import { handlePersonaHealth } from './persona-health.js'
 import { getSmokeConfig, getSmokeStatus, runSmoke } from './smoke.js'
 import {
   getEvalStatus,
@@ -50,6 +51,7 @@ export const ROUTES = {
   proxy: '/api/proxy',
   smokeStatus: '/api/admin/smoke/status',
   smokeRun: '/api/admin/smoke/run',
+  personaHealth: '/api/admin/persona-health',
   evalStatus: '/api/self-healing-eval/status',
   evalRun: '/api/self-healing-eval/run',
   evalReportLatest: '/api/self-healing-eval/report/latest',
@@ -432,6 +434,15 @@ export async function dispatch(
   }
   if (p === ROUTES.smokeRun) {
     await handleSmokeRun(req, res)
+    return true
+  }
+  if (p === ROUTES.personaHealth) {
+    if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
+      sendJson(res, 405, { error: 'method_not_allowed' })
+      return true
+    }
+    if (!(await gateEval(req, res))) return true
+    await handlePersonaHealth(req, res)
     return true
   }
   if (p === ROUTES.evalStatus) {
