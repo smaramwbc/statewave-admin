@@ -36,6 +36,8 @@
   --theme-border: rgba(255, 255, 255, 0.08);
   --theme-card-bg: #111827;
   --theme-selection: rgba(99, 102, 241, 0.3);
+  --theme-scrollbar-thumb: rgba(99, 102, 241, 0.32);
+  --theme-scrollbar-thumb-hover: rgba(129, 140, 248, 0.55);
 }
 
 /* Light theme */
@@ -50,6 +52,8 @@
   --theme-border: rgba(0, 0, 0, 0.08);
   --theme-card-bg: #ffffff;
   --theme-selection: rgba(99, 102, 241, 0.15);
+  --theme-scrollbar-thumb: rgba(99, 102, 241, 0.28);
+  --theme-scrollbar-thumb-hover: rgba(99, 102, 241, 0.5);
 }
 
 html {
@@ -133,4 +137,47 @@ button[aria-disabled="true"] {
 
 a {
   cursor: pointer;
+}
+
+/* ─── Custom scrollbar ───────────────────────────────────────────────────────
+ * Slim, accent-tinted scrollbar that matches the Statewave palette in both
+ * themes. Firefox uses `scrollbar-color`; WebKit uses the pseudo-element
+ * rules below.
+ *
+ * Theme-switch flicker fix: the scrollbar properties live on `html` (they're
+ * inherited, so a global `*` selector is wasteful and causes unnecessary
+ * style recalc on every theme swap). The thumb has NO transition either —
+ * WebKit pseudo-element transitions are unreliable and produce a visible
+ * flash when interpolating between the dark and light alpha values during a
+ * theme change. Snappier is better here; the body's bg fade carries the
+ * theme-change feel without involving the scrollbar.
+ */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--theme-scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
