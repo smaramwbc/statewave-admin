@@ -1316,3 +1316,46 @@ export async function generateEvalQuestions(
   err.warnings = payload?.warnings
   throw err
 }
+
+// ─── Demo-pack persona health (read-only diagnostics) ────────────────────────
+//
+// Backs the /diagnostics "Demo personas" panel. Returns per-persona pack stats
+// + retrieval probe results so an operator can see at a glance whether each
+// demo pack is healthy. Cached server-side for 5 minutes; pass force=true to
+// re-run the probes.
+
+export type PersonaHealthStatus = 'pass' | 'warn' | 'fail' | 'error' | 'not_configured'
+
+export interface PersonaProbeResult {
+  query: string
+  expected_substring: string
+  rank: number | null
+  pass: boolean
+  top_memory_preview: string | null
+}
+
+export interface PersonaHealth {
+  pack_id: string
+  display_name: string
+  version: string | null
+  episode_count: number | null
+  memory_count: number | null
+  embedding_coverage: number | null
+  probes: PersonaProbeResult[]
+  status: PersonaHealthStatus
+  error: string | null
+}
+
+export interface PersonaHealthReport {
+  fetched_at: string
+  personas: PersonaHealth[]
+}
+
+export async function fetchPersonaHealth(opts: { force?: boolean } = {}): Promise<PersonaHealthReport> {
+  const url = opts.force
+    ? '/api/admin/persona-health?force=true'
+    : '/api/admin/persona-health'
+  const res = await fetch(url, { credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
