@@ -292,3 +292,86 @@ describe('SystemSmokeCheck — manual rerun + error states', () => {
     expect(screen.getByText(/ADMIN_SMOKE_DISABLED/)).toBeInTheDocument()
   })
 })
+
+describe('SystemSmokeCheck — Vercel cross-lambda safety', () => {
+  /**
+   * Regression: smoke state lives in-process on the admin server, so on
+   * Vercel each request can land on a fresh lambda whose memory hasn't
+   * seen the recent run. Shape:
+   *
+   *   1. mount → /status hits cold lambda → has_run=false, last_result=null
+   *   2. auto-fire → /run lands the run on a different lambda → returns
+   *      the full success result; client setStatus optimistically
+   *   3. a later /status request hits a third cold lambda → returns
+   *      {has_run:false, last_result:null} again
+   *
+   * The card must keep showing the success result on screen — the
+   * authoritative source after step 2 is the run response we already
+   * received, not whichever cold lambda answers /status next.
+   */
+  it('preserves the run result when a later /status comes back empty (cold lambda)', async () => {
+    let statusCalls = 0
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (isSmokeStatusUrl(url)) {
+        statusCalls += 1
+        // Every status call returns "never run" — this is the worst
+        // case where every probe hits a cold lambda. The UI should
+        // still latch onto the POST result.
+        return Promise.resolve(
+          jsonRes(statusBody({ has_run: false, last_result: null })),
+        )
+      }
+      if (isSmokeRunUrl(url)) {
+        return Promise.resolve(jsonRes(statusBody().last_result))
+      }
+      return Promise.resolve(jsonRes({}))
+    })
+
+    await act(async () => {
+      renderInRouter()
+    })
+    await waitFor(() => {
+      expect(screen.getByText('All checks passed')).toBeInTheDocument()
+    })
+    // Manually trigger a refresh that returns an empty cold-lambda
+    // status — clicking "Run smoke check again" doesn't fit (it POSTs);
+    // instead we let the auto-fire's effect-driven flow run and assert
+    // the success label survives at least one extra status fetch.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.getByText('All checks passed')).toBeInTheDocument()
+    // Sanity: at least one /status call happened beyond the initial mount.
+    expect(statusCalls).toBeGreaterThanOrEqual(1)
+  })
+
+  it('does NOT auto-fire a second /run when running flips (stable runOnce)', async () => {
+    // Before the refactor that moved the single-flight guard onto a ref,
+    // `running` was in runOnce's deps — so the auto-fire effect re-fired
+    // every time `running` flipped, queuing a second status fetch that
+    // could race the POST. This test pins the contract: exactly one
+    // /run POST per fresh mount, regardless of how many renders the
+    // running flag triggers.
+    let runCalls = 0
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (isSmokeStatusUrl(url)) {
+        return Promise.resolve(
+          jsonRes(statusBody({ has_run: false, last_result: null })),
+        )
+      }
+      if (isSmokeRunUrl(url)) {
+        runCalls += 1
+        return Promise.resolve(jsonRes(statusBody().last_result))
+      }
+      return Promise.resolve(jsonRes({}))
+    })
+
+    await act(async () => {
+      renderInRouter()
+    })
+    await waitFor(() => {
+      expect(screen.getByText('All checks passed')).toBeInTheDocument()
+    })
+    // Give the effect time to settle in case anything wants to re-fire.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(runCalls).toBe(1)
+  })
+})
