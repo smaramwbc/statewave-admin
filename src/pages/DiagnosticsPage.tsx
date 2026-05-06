@@ -1,6 +1,7 @@
 import { PageHeader } from '../components/ui'
 import { SystemSmokeCheck } from '../components/SystemSmokeCheck'
 import { SelfHealingEval } from '../components/SelfHealingEval'
+import { PersonaHealthPanel } from '../components/PersonaHealthPanel'
 
 /**
  * Diagnostics — operator-facing health and readiness center.
@@ -24,6 +25,7 @@ export function DiagnosticsPage() {
       />
       <div className="space-y-8">
         <SystemSmokeCheck />
+        <PersonaHealthPanel />
         <SelfHealingEval />
       </div>
     </div>
