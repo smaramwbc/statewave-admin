@@ -120,11 +120,32 @@ export function SystemSmokeCheck() {
   const [error, setError] = useState<string | null>(null)
   const autofireRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Single-flight guard for runOnce. Kept in a ref (not state) so
+  // runOnce stays referentially stable — otherwise the auto-fire
+  // useEffect would re-fire every time `running` flips and kick off a
+  // second `/status` fetch that can race the POST result.
+  const runningRef = useRef(false)
 
   const refresh = useCallback(async () => {
     try {
       const next = await fetchSmokeStatus()
-      setStatus(next)
+      // Vercel-serverless safety: smoke state lives in-process on the
+      // admin server, so a status fetch can land on a fresh lambda
+      // whose memory hasn't seen the recent run. That lambda returns
+      // `last_result: null` even though the run finished and we
+      // already received the full result from the POST. Preserve the
+      // local result in that case so the UI doesn't drop back to
+      // "not yet run" right after a successful run.
+      setStatus((prev) => {
+        if (
+          prev?.last_result &&
+          !next.last_result &&
+          !next.is_running
+        ) {
+          return { ...next, last_result: prev.last_result, has_run: true }
+        }
+        return next
+      })
       setError(null)
       return next
     } catch (e) {
@@ -135,7 +156,8 @@ export function SystemSmokeCheck() {
   }, [])
 
   const runOnce = useCallback(async () => {
-    if (running) return
+    if (runningRef.current) return
+    runningRef.current = true
     setRunning(true)
     setError(null)
     try {
@@ -151,9 +173,10 @@ export function SystemSmokeCheck() {
       const msg = e instanceof Error ? e.message : 'Failed to run smoke check'
       setError(msg)
     } finally {
+      runningRef.current = false
       setRunning(false)
     }
-  }, [running])
+  }, [])
 
   useEffect(() => {
     let cancelled = false
