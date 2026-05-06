@@ -12,6 +12,13 @@
  * because the underlying handlers are Node-shape. That keeps Vercel on
  * its default Node serverless runtime — no `runtime: 'edge'` directive
  * needed, and self-hosters never load this file.
+ *
+ * Filename note: `[...slug].ts` (single brackets) is Vercel's catch-all
+ * glob for the Node runtime. The Next.js-style optional catch-all
+ * `[[...slug]].ts` (double brackets) is only honoured in the Edge
+ * runtime; Node-runtime deploys 404 every `/api/*` path with the
+ * double-bracket name (the function deploys, but the filesystem
+ * router never matches a request to it).
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dispatch } from '../server/handlers.js'
