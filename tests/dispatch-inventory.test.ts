@@ -114,33 +114,52 @@ describe('dispatch — 404', () => {
 })
 
 describe('vercel adapter — query-param rewrite', () => {
-  // Regression for #16: the original `delete('path')` removed BOTH the
-  // auto-attached `path=<capture>` AND the client-supplied `?path=...`,
-  // so /api/proxy?path=/admin/dashboard reached the proxy with an empty
-  // path and 400'd as `invalid_path`.
+  // Regression for #18 (the real fix). vercel.json's capture is named
+  // `:slug*` rather than `:path*` because Vercel auto-injects every
+  // named capture onto the rewritten request as a query param of the
+  // same name, and that auto-inject *replaces* any same-named query
+  // the client sent. With `:path*` the injection clobbered the
+  // proxy's `?path=<upstream>` argument, so /api/proxy?path=/admin/X
+  // arrived at the function as `path=proxy` and 400'd as `invalid_path`.
   //
-  // Vercel's rewrite ordering of `path=<capture>` vs the client's
-  // `path=...` is unspecified, so we exercise both orderings.
-  for (const merged of [
-    '/api/dispatch?_path=proxy&path=proxy&path=%2Fadmin%2Fdashboard',
-    '/api/dispatch?_path=proxy&path=%2Fadmin%2Fdashboard&path=proxy',
-  ]) {
-    it(`preserves a client-sent ?path= alongside the auto-capture (${merged})`, async () => {
-      const req = makeReq('GET', merged)
-      const { res } = makeRes()
-      await vercelDispatch(req, res)
-      const u = new URL(req.url ?? '/', 'http://localhost')
-      expect(u.pathname).toBe('/api/proxy')
-      expect(u.searchParams.get('path')).toBe('/admin/dashboard')
-    })
-  }
-
-  it('still strips the auto-capture when no client path was sent', async () => {
-    const req = makeReq('GET', '/api/dispatch?_path=proxy&path=proxy')
+  // These tests pin the post-rewrite shape Vercel actually sends:
+  // `?_path=<capture>&slug=<capture>` plus whatever the client sent.
+  it('preserves a client-sent ?path= alongside the auto-injected ?slug=', async () => {
+    const req = makeReq(
+      'GET',
+      '/api/dispatch?_path=proxy&slug=proxy&path=%2Fadmin%2Fdashboard',
+    )
     const { res } = makeRes()
     await vercelDispatch(req, res)
     const u = new URL(req.url ?? '/', 'http://localhost')
     expect(u.pathname).toBe('/api/proxy')
-    expect(u.searchParams.get('path')).toBeNull()
+    expect(u.searchParams.get('path')).toBe('/admin/dashboard')
+    expect(u.searchParams.get('slug')).toBeNull()
+    expect(u.searchParams.get('_path')).toBeNull()
+  })
+
+  it('strips the auto-injected ?slug= when no client query was sent', async () => {
+    const req = makeReq('GET', '/api/dispatch?_path=proxy&slug=proxy')
+    const { res } = makeRes()
+    await vercelDispatch(req, res)
+    const u = new URL(req.url ?? '/', 'http://localhost')
+    expect(u.pathname).toBe('/api/proxy')
+    expect(u.searchParams.get('slug')).toBeNull()
+  })
+
+  it('preserves the full client query string for nested admin paths', async () => {
+    // /api/proxy?path=/admin/subjects?sort_by=last_activity (the
+    // browser URL-encodes the inner `?` and `&`).
+    const inner = '%2Fadmin%2Fsubjects%3Fsort_by%3Dlast_activity'
+    const req = makeReq(
+      'GET',
+      `/api/dispatch?_path=proxy&slug=proxy&path=${inner}`,
+    )
+    const { res } = makeRes()
+    await vercelDispatch(req, res)
+    const u = new URL(req.url ?? '/', 'http://localhost')
+    expect(u.searchParams.get('path')).toBe(
+      '/admin/subjects?sort_by=last_activity',
+    )
   })
 })
