@@ -54,6 +54,40 @@ npm start
 # → http://localhost:8080 — sign in with the password you just generated
 ```
 
+## Desktop app
+
+A self-contained cross-platform desktop bundle is available for macOS, Linux, and Windows. It wraps the admin web UI in a Tauri v2 window and embeds the standalone Node admin server (`server/index.ts`) as a sidecar — one drag-to-install bundle, no separate server to set up, no browser tab to manage. Server fixes reach the desktop bundle from the same source.
+
+**Download:** see the [latest desktop release](https://github.com/smaramwbc/statewave-admin/releases) for `.dmg` (macOS), `.AppImage` and `.deb` (Linux), and `.msi` (Windows).
+
+### First launch (unsigned bundles)
+
+The desktop app is distributed exclusively through GitHub releases — there are no plans to ship to the App Store or Microsoft Store, so the bundles are **unsigned**. The first launch trips your platform's unidentified-developer guard once; the fix is per-platform:
+
+- **macOS** — open the `.dmg`, drag the app to `/Applications`, then **right-click → Open** the first time. After that, double-click works normally. Alternative: `xattr -cr "/Applications/Statewave Admin.app"`.
+- **Windows** — run the `.msi`. SmartScreen will show "Windows protected your PC" — click **More info → Run anyway**.
+- **Linux** — the `.deb` and `.AppImage` install with no warning. For `.AppImage`: `chmod +x 'Statewave Admin*.AppImage' && ./'Statewave Admin*.AppImage'`.
+
+### After first launch
+
+A one-time wizard collects your **Statewave API URL** and **API key** (the same values the web build expects in `STATEWAVE_API_URL` / `STATEWAVE_API_KEY`). The app then spawns the embedded admin server on a random localhost port and opens the dashboard.
+
+To switch backends or wipe credentials, use **Statewave Admin → Disconnect Backend…** in the menu bar — it clears the stored config and returns you to the wizard.
+
+### CLI
+
+Each desktop release also publishes a standalone `statewave-admin` CLI binary for each platform (attached to the same release page). It talks HTTP to any admin server — your hosted deployment, a self-hosted instance, or the desktop app's embedded sidecar — and surfaces every operation the web UI does, plus an interactive menu and fuzzy `search` for discoverability:
+
+```sh
+statewave-admin              # interactive menu (auto-prompts login if needed)
+statewave-admin search "delete subject"
+statewave-admin subjects bulk-delete --prefix old_ --preview-only
+```
+
+### Building from source
+
+See [desktop/README.md](desktop/README.md) for the full Cargo workspace + Bun + Tauri toolchain recipe, the architecture diagram, and the `.github/workflows/desktop-release.yml` release pipeline.
+
 ## Configuration
 
 All variables are **server-side only**. None may use a `VITE_*` prefix — those would be baked into the public bundle.

@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { isTauri } from '../lib/tauri-bridge'
 import { LoginPage } from '../pages/LoginPage'
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { loading, authenticated, configError, authDisabled } = useAuth()
+  // Inside the Tauri desktop bundle the embedded sidecar deliberately
+  // runs with `ADMIN_AUTH_DISABLED=true` — the OS user + the file
+  // permissions on the per-user config dir are the auth boundary, not
+  // a server-side password. Suppress the "DISABLED — local dev only"
+  // banner in that context to avoid telling the user something
+  // misleading.
+  const showDisabledBanner = authDisabled && !isTauri()
 
   if (loading) {
     return (
@@ -34,7 +42,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // the banner consume its natural row and Shell fill the remainder.
   return (
     <div className="h-screen flex flex-col">
-      {authDisabled && (
+      {showDisabledBanner && (
         <div
           role="alert"
           className="shrink-0 bg-amber-100 dark:bg-amber-950/50 border-b border-amber-300 dark:border-amber-900 text-amber-800 dark:text-amber-300 text-xs px-4 py-1.5 text-center font-medium flex items-center justify-center gap-2"

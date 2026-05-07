@@ -3,13 +3,55 @@ import { createRoot } from 'react-dom/client'
 import { toast } from 'sonner'
 import './index.css'
 import App from './App'
+import { TauriFirstRun, TauriStartingSidecar } from './components/TauriFirstRun'
 import { applyPendingUpdate, registerServiceWorker } from './lib/sw-register'
+import {
+  ensureSidecar,
+  getBackendStatus,
+  isBootstrapPhase,
+  isTauri,
+} from './lib/tauri-bridge'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+async function bootstrap() {
+  const root = createRoot(document.getElementById('root')!)
+
+  // In Tauri, the React bundle boots once from `tauri://localhost`
+  // (bootstrap phase) and again from `http://127.0.0.1:NNNN` after the
+  // shell navigates to the spawned sidecar (normal phase). The wizard /
+  // sidecar plumbing only runs in the bootstrap phase. Outside Tauri
+  // (web deploy, `npm run dev`) we go straight to the app.
+  if (isTauri() && isBootstrapPhase()) {
+    const status = await getBackendStatus()
+    if (!status.configured) {
+      root.render(
+        <StrictMode>
+          <TauriFirstRun />
+        </StrictMode>,
+      )
+      return
+    }
+    // Creds present — starting the sidecar will navigate the window.
+    root.render(
+      <StrictMode>
+        <TauriStartingSidecar />
+      </StrictMode>,
+    )
+    try {
+      await ensureSidecar()
+    } catch (err) {
+      console.error('failed to start sidecar', err)
+    }
+    return
+  }
+
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+}
+
+void bootstrap()
 
 // Register the service worker after React mounts. The registration is a
 // no-op in dev (Vite serves modules), and is a no-op in browsers that

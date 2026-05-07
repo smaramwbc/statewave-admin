@@ -9,6 +9,8 @@
     "build": "tsc -b && vite build && tsc -p tsconfig.server.json",
     "build:client": "tsc -b && vite build",
     "build:server": "tsc -p tsconfig.server.json",
+    "build:sidecar": "bash desktop/scripts/build-sidecar.sh",
+    "build:sidecar:all": "bash desktop/scripts/build-sidecar.sh --all",
     "start": "node dist-server/index.js",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
@@ -17,6 +19,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.4.0",
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

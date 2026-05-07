@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability — open dialogs, manage admin sidecar, and run minimal shell access for the bundled server binary.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-set-webview-focus",
+    "core:webview:allow-webview-show",
+    "core:webview:allow-webview-hide",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-title",
+    "dialog:default",
+    "shell:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/statewave-admin-server",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
+  ]
+}
