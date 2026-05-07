@@ -40,12 +40,12 @@ export default async function handler(
         u.searchParams.delete('_path')
         // Vercel also auto-attaches the source's `:path*` capture as a
         // `path` query param (in addition to the explicit `_path` we
-        // wired in vercel.json). Strip it so it doesn't leak into the
-        // request and into 404 bodies — but only when it duplicates the
-        // captured path, never when the client genuinely sent `?path=`.
-        if (u.searchParams.get('path') === originalPath) {
-          u.searchParams.delete('path')
-        }
+        // wired in vercel.json). Strip the auto-capture entry so it
+        // doesn't leak into the request and into 404 bodies — but use
+        // the value-filtered delete so a client-supplied `?path=...`
+        // (e.g. `/api/proxy?path=/admin/dashboard`) survives even when
+        // ordering puts the auto-capture first in the merged query.
+        u.searchParams.delete('path', originalPath)
         // Preserve any genuine query string the client sent.
         const qs = u.search ? u.search : ''
         req.url = `/api/${originalPath}${qs}`
