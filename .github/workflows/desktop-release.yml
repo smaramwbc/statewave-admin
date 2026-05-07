@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ── Linux WebKit / GTK deps for the Tauri WebView. Mac and Windows
       #    have everything they need preinstalled on GitHub runners.
