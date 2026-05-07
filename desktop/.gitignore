@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Tauri build artifacts
+crates/gui/gen/
+crates/gui/target/
+
+# Sidecar build outputs — produced by `desktop/scripts/build-sidecar.sh`
+# from server/index.ts, copied into the Tauri bundle at build time.
+crates/gui/binaries/statewave-admin-server-*

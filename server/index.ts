@@ -18,7 +18,15 @@ import { join, normalize, resolve, extname } from 'node:path'
 import { URL } from 'node:url'
 import { dispatch } from './handlers.js'
 
-const PORT = Number.parseInt(process.env.PORT ?? '8080', 10) || 8080
+// PORT=0 (or "0") asks the OS for a free port. We can't use the
+// `|| 8080` fallback here because `Number.parseInt('0') || 8080` reads
+// 0 as falsy — the explicit nullish check below preserves the deploy
+// default of 8080 while letting the Tauri sidecar pass `0` for an
+// OS-assigned port.
+const RAW_PORT = process.env.PORT
+const PORT = RAW_PORT === undefined || RAW_PORT === ''
+  ? 8080
+  : Number.parseInt(RAW_PORT, 10)
 const HOST = process.env.HOST ?? '0.0.0.0'
 const STATIC_DIR = resolve(process.env.ADMIN_STATIC_DIR ?? './dist')
 
@@ -137,5 +145,12 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, HOST, () => {
-  console.info(`[statewave-admin] listening on http://${HOST}:${PORT} (static: ${STATIC_DIR})`)
+  // Use the actual bound port — when PORT=0 the OS picks one and the
+  // requested PORT is 0, not the real port. The `[sidecar-ready] port=N`
+  // line is the contract the Tauri shell parses on stdout to learn where
+  // to point the WebView.
+  const addr = server.address()
+  const boundPort = typeof addr === 'object' && addr ? addr.port : PORT
+  console.info(`[statewave-admin] listening on http://${HOST}:${boundPort} (static: ${STATIC_DIR})`)
+  console.info(`[sidecar-ready] port=${boundPort}`)
 })

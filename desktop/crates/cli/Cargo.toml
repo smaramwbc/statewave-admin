@@ -1,0 +1,27 @@
+[package]
+name = "statewave-admin-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "statewave-admin"
+path = "src/main.rs"
+
+[dependencies]
+statewave-admin-core = { path = "../core" }
+anyhow.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+inquire.workspace = true
+console.workspace = true
+nu-ansi-term.workspace = true
+fuzzy-matcher.workspace = true
+indicatif.workspace = true
+url.workspace = true
+chrono.workspace = true
