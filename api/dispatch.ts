@@ -32,21 +32,23 @@ export default async function handler(
   // we restore the original path on the request before calling it.
   // Outside Vercel (standalone server, Vite plugin) `_path` is absent
   // and req.url already carries the real path, so this branch is a no-op.
+  //
+  // The capture in vercel.json is named `:slug*` (not `:path*`) on
+  // purpose: Vercel auto-injects every named capture as a query param
+  // of the same name onto the rewritten request, and that auto-inject
+  // *replaces* any same-named query the client sent. With `:path*` the
+  // injected `path=<capture>` clobbered the client's `?path=...` (the
+  // proxy's upstream-path argument), making `/api/proxy?path=/admin/X`
+  // unreachable — proxy got `path=proxy` and 400'd as `invalid_path`.
+  // Naming the capture `:slug*` keeps the auto-inject at `slug=...`,
+  // which we then strip below; the client's `?path=...` survives.
   if (req.url) {
     try {
       const u = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`)
       const originalPath = u.searchParams.get('_path')
       if (originalPath) {
         u.searchParams.delete('_path')
-        // Vercel also auto-attaches the source's `:path*` capture as a
-        // `path` query param (in addition to the explicit `_path` we
-        // wired in vercel.json). Strip the auto-capture entry so it
-        // doesn't leak into the request and into 404 bodies — but use
-        // the value-filtered delete so a client-supplied `?path=...`
-        // (e.g. `/api/proxy?path=/admin/dashboard`) survives even when
-        // ordering puts the auto-capture first in the merged query.
-        u.searchParams.delete('path', originalPath)
-        // Preserve any genuine query string the client sent.
+        u.searchParams.delete('slug')
         const qs = u.search ? u.search : ''
         req.url = `/api/${originalPath}${qs}`
       }
