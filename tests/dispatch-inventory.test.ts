@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { IncomingMessage, ServerResponse } from 'node:http'
 import { Socket } from 'node:net'
 import { dispatch, ROUTES } from '../server/handlers'
+import vercelDispatch from '../api/dispatch'
 
 function makeReq(method: string, url: string): IncomingMessage {
   const req = new IncomingMessage(new Socket())
@@ -109,5 +110,37 @@ describe('dispatch — 404', () => {
     const { res } = makeRes()
     const handled = await dispatch(makeReq('GET', '/dashboard'), res)
     expect(handled).toBe(false)
+  })
+})
+
+describe('vercel adapter — query-param rewrite', () => {
+  // Regression for #16: the original `delete('path')` removed BOTH the
+  // auto-attached `path=<capture>` AND the client-supplied `?path=...`,
+  // so /api/proxy?path=/admin/dashboard reached the proxy with an empty
+  // path and 400'd as `invalid_path`.
+  //
+  // Vercel's rewrite ordering of `path=<capture>` vs the client's
+  // `path=...` is unspecified, so we exercise both orderings.
+  for (const merged of [
+    '/api/dispatch?_path=proxy&path=proxy&path=%2Fadmin%2Fdashboard',
+    '/api/dispatch?_path=proxy&path=%2Fadmin%2Fdashboard&path=proxy',
+  ]) {
+    it(`preserves a client-sent ?path= alongside the auto-capture (${merged})`, async () => {
+      const req = makeReq('GET', merged)
+      const { res } = makeRes()
+      await vercelDispatch(req, res)
+      const u = new URL(req.url ?? '/', 'http://localhost')
+      expect(u.pathname).toBe('/api/proxy')
+      expect(u.searchParams.get('path')).toBe('/admin/dashboard')
+    })
+  }
+
+  it('still strips the auto-capture when no client path was sent', async () => {
+    const req = makeReq('GET', '/api/dispatch?_path=proxy&path=proxy')
+    const { res } = makeRes()
+    await vercelDispatch(req, res)
+    const u = new URL(req.url ?? '/', 'http://localhost')
+    expect(u.pathname).toBe('/api/proxy')
+    expect(u.searchParams.get('path')).toBeNull()
   })
 })
