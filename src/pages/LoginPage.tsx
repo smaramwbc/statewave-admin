@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
+import { useTheme } from '../lib/theme'
 import { Button } from '../components/ui'
 
 export function LoginPage() {
   const { login, configError, authDisabled } = useAuth()
+  const { resolvedTheme } = useTheme()
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -30,7 +32,12 @@ export function LoginPage() {
   return (
     <div className="min-h-screen bg-[var(--theme-surface-0)] flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <img
+            src={resolvedTheme === 'dark' ? '/statewave_icon_dark.png' : '/statewave_icon_light.png'}
+            alt="Statewave"
+            className="h-12 w-12 mb-3"
+          />
           <div className="text-sm font-semibold text-theme-primary tracking-tight">
             Statewave
           </div>
