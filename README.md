@@ -1,5 +1,8 @@
 # statewave-admin
 
+[![CI](https://github.com/smaramwbc/statewave-admin/workflows/CI/badge.svg)](https://github.com/smaramwbc/statewave-admin/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 Operator console for Statewave instances — system health, subject explorer, compile jobs, webhook status, and usage metering.
 
 > **Part of the Statewave ecosystem:** [Server](https://github.com/smaramwbc/statewave) · [Python SDK](https://github.com/smaramwbc/statewave-py) · [TypeScript SDK](https://github.com/smaramwbc/statewave-ts) · [Docs](https://github.com/smaramwbc/statewave-docs) · [Examples](https://github.com/smaramwbc/statewave-examples) · [Website + demo](https://statewave.ai) · **Admin**
