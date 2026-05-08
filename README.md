@@ -1,4 +1,4 @@
-# statewave-admin
+# Statewave Admin
 
 [![CI](https://github.com/smaramwbc/statewave-admin/workflows/CI/badge.svg)](https://github.com/smaramwbc/statewave-admin/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
