@@ -58,7 +58,9 @@ npm start
 
 A self-contained cross-platform desktop bundle is available for macOS, Linux, and Windows. It wraps the admin web UI in a Tauri v2 window and embeds the standalone Node admin server (`server/index.ts`) as a sidecar — one drag-to-install bundle, no separate server to set up, no browser tab to manage. Server fixes reach the desktop bundle from the same source.
 
-**Download:** see the [latest desktop release](https://github.com/smaramwbc/statewave-admin/releases) for `.dmg` (macOS), `.AppImage` and `.deb` (Linux), and `.msi` (Windows).
+**Download:** see the [latest desktop release](https://github.com/smaramwbc/statewave-admin/releases) for `.dmg` (macOS Apple Silicon), `.AppImage` and `.deb` (Linux x64), and `.msi` (Windows x64).
+
+> **Intel Macs:** native Intel binaries are not shipped. Install the Apple Silicon `.dmg` — macOS' built-in Rosetta 2 translates it transparently. (Apple stopped selling Intel Macs in 2023; if you're on one, you've already used Rosetta many times.)
 
 ### First launch (unsigned bundles)
 

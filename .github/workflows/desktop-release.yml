@@ -22,14 +22,16 @@ jobs:
     name: build (${{ matrix.platform }} / ${{ matrix.rust_target }})
     strategy:
       fail-fast: false
+      # Intel Mac (`x86_64-apple-darwin`, runs on `macos-13`) is intentionally
+      # not built. Apple stopped selling Intel Macs in 2023, GitHub's
+      # macos-13 runner pool is chronically backed up, and Rosetta 2 runs
+      # the Apple Silicon `.dmg` natively — see the README's Desktop
+      # section for the Intel-Mac install instructions.
       matrix:
         include:
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
             cli_suffix: macos-arm64
-          - platform: macos-13
-            rust_target: x86_64-apple-darwin
-            cli_suffix: macos-x64
           - platform: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
             cli_suffix: linux-x64
