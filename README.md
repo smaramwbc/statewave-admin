@@ -34,7 +34,38 @@ Nothing in this repo is bound to a specific cloud or PaaS. The runtime is a smal
 
 The same auth handlers run in dev (Vite middleware), in tests, and in production. See [DEPLOYMENT.md](DEPLOYMENT.md) for runnable examples per host.
 
-## Quick start (local dev)
+## Quick start
+
+Three paths, pick whichever fits:
+
+### A. With the Statewave docker compose stack (recommended for self-hosters)
+
+The default [`statewave/docker-compose.yml`](https://github.com/smaramwbc/statewave/blob/main/docker-compose.yml) already includes an `admin` service that pulls the published [`statewavedev/statewave-admin`](https://hub.docker.com/r/statewavedev/statewave-admin) image. One command brings up server + admin + Postgres:
+
+```bash
+git clone https://github.com/smaramwbc/statewave.git
+cd statewave
+docker compose up -d
+# → API:   http://localhost:8100
+# → Admin: http://localhost:8080
+```
+
+The compose ships `ADMIN_AUTH_DISABLED=true` for first-run convenience. For production override see [Production override](#production-override) below.
+
+### B. Standalone Docker container
+
+For Kubernetes, Nomad, ECS, App Runner, Cloud Run, Render — anywhere that runs an OCI image:
+
+```bash
+docker run -d --name statewave-admin -p 8080:8080 \
+  -e STATEWAVE_API_URL=https://your-statewave-instance \
+  -e STATEWAVE_API_KEY=$STATEWAVE_API_KEY \
+  -e ADMIN_PASSWORD=$ADMIN_PASSWORD \
+  -e ADMIN_SESSION_SECRET=$ADMIN_SESSION_SECRET \
+  statewavedev/statewave-admin:latest
+```
+
+### C. From source (Vite dev server — for contributing to the admin codebase)
 
 ```bash
 npm install
@@ -45,7 +76,7 @@ npm run dev
 
 Open http://localhost:5173. A bright warning banner appears across the top whenever `ADMIN_AUTH_DISABLED=true`.
 
-## Quick start (production-style local)
+For a production-style local check from source (built bundle, real auth):
 
 ```bash
 npm install
@@ -56,6 +87,18 @@ npm run build
 npm start
 # → http://localhost:8080 — sign in with the password you just generated
 ```
+
+### Production override
+
+In production you **must not** ship with `ADMIN_AUTH_DISABLED=true`. Required env shape:
+
+```bash
+ADMIN_AUTH_DISABLED=          # leave empty to require auth
+ADMIN_PASSWORD=$(openssl rand -base64 32)
+ADMIN_SESSION_SECRET=$(openssl rand -hex 32)
+```
+
+…and always behind an access gateway (Cloudflare Access, OAuth2 Proxy, IP allowlist, or VPN). See [SECURITY.md](SECURITY.md) for the full security posture.
 
 ## Desktop app
 
