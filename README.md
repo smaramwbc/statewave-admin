@@ -64,11 +64,24 @@ A self-contained cross-platform desktop bundle is available for macOS, Linux, an
 
 ### First launch (unsigned bundles)
 
-The desktop app is distributed exclusively through GitHub releases — there are no plans to ship to the App Store or Microsoft Store, so the bundles are **unsigned**. The first launch trips your platform's unidentified-developer guard once; the fix is per-platform:
+The desktop app is distributed exclusively through GitHub releases — there are no plans to ship to the App Store or Microsoft Store, so the bundles are **unsigned**. The first launch trips your platform's unidentified-developer guard; the fix is per-platform:
 
-- **macOS** — open the `.dmg`, drag the app to `/Applications`, then **right-click → Open** the first time. After that, double-click works normally. Alternative: `xattr -cr "/Applications/Statewave Admin.app"`.
-- **Windows** — run the `.msi`. SmartScreen will show "Windows protected your PC" — click **More info → Run anyway**.
-- **Linux** — the `.deb` and `.AppImage` install with no warning. For `.AppImage`: `chmod +x 'Statewave Admin*.AppImage' && ./'Statewave Admin*.AppImage'`.
+- **macOS** — open the `.dmg`, drag the app to `/Applications`, then run the following in Terminal once:
+
+  ```sh
+  xattr -cr "/Applications/Statewave Admin.app"
+  ```
+
+  After that, double-click the app normally. *Why this is needed:* macOS attaches a `com.apple.quarantine` extended attribute to anything downloaded by a browser. For unsigned apps on macOS 15 (Sequoia) and later the system displays a `"…is damaged and can't be opened"` error and **no longer offers the right-click → Open override that worked on macOS 14 and earlier**. Stripping the attribute clears the block. (On macOS 14 and earlier, right-click → Open also still works as a one-click alternative.)
+
+- **Windows** — run the `.msi` or `_x64-setup.exe`. SmartScreen will show "Windows protected your PC" — click **More info → Run anyway**.
+
+- **Linux** — the `.deb` and `.rpm` install with no warning. For the `.AppImage`:
+
+  ```sh
+  chmod +x 'Statewave Admin_*.AppImage'
+  ./'Statewave Admin_'*.AppImage
+  ```
 
 ### After first launch
 
@@ -78,7 +91,34 @@ To switch backends or wipe credentials, use **Statewave Admin → Disconnect Bac
 
 ### CLI
 
-Each desktop release also publishes a standalone `statewave-admin` CLI binary for each platform (attached to the same release page). It talks HTTP to any admin server — your hosted deployment, a self-hosted instance, or the desktop app's embedded sidecar — and surfaces every operation the web UI does, plus an interactive menu and fuzzy `search` for discoverability:
+Each desktop release also publishes a standalone `statewave-admin` CLI binary for each platform (attached to the same release page as `statewave-admin-cli-<platform>`). It talks HTTP to any admin server — your hosted deployment, a self-hosted instance, or the desktop app's embedded sidecar — and surfaces every operation the web UI does, plus an interactive menu and fuzzy `search` for discoverability.
+
+**Install the CLI on macOS / Linux:**
+
+```sh
+# 1. Download the binary for your platform from the releases page.
+curl -L -o statewave-admin \
+  https://github.com/smaramwbc/statewave-admin/releases/latest/download/statewave-admin-cli-macos-arm64
+# (linux-x64 users: swap the URL suffix for `statewave-admin-cli-linux-x64`)
+
+# 2. Make it executable.
+chmod +x statewave-admin
+
+# 3. macOS only: clear the browser quarantine attribute so Gatekeeper allows it.
+xattr -cr statewave-admin     # only needed if you downloaded via a browser
+
+# 4. Move it onto your PATH.
+mv statewave-admin /usr/local/bin/   # or ~/.local/bin if that's on your PATH
+
+# 5. Verify.
+statewave-admin --help
+```
+
+**Install the CLI on Windows:**
+
+Download `statewave-admin-cli-windows-x64.exe`, rename it to `statewave-admin.exe`, and place it in any folder on your `PATH` (or use the full path to the .exe). On first run, Windows SmartScreen may prompt — choose **More info → Run anyway**.
+
+**Use it:**
 
 ```sh
 statewave-admin              # interactive menu (auto-prompts login if needed)
