@@ -26,12 +26,16 @@ jobs:
         include:
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
+            cli_suffix: macos-arm64
           - platform: macos-13
             rust_target: x86_64-apple-darwin
+            cli_suffix: macos-x64
           - platform: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
+            cli_suffix: linux-x64
           - platform: windows-latest
             rust_target: x86_64-pc-windows-msvc
+            cli_suffix: windows-x64
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
@@ -114,7 +118,10 @@ jobs:
           args: --target ${{ matrix.rust_target }}
 
       # ── Attach the standalone CLI binary to the same draft release so
-      #    users get every artifact (GUI + CLI) in one place.
+      #    users get every artifact (GUI + CLI) in one place. The
+      #    `cli_suffix` per matrix entry gives the binary a platform name
+      #    (e.g. `statewave-admin-cli-macos-arm64`) instead of the rust
+      #    target triple — clearer for users browsing the releases page.
       - name: Stage CLI binary
         shell: bash
         working-directory: desktop
@@ -122,10 +129,10 @@ jobs:
           mkdir -p ../release-staging
           if [[ "${{ matrix.rust_target }}" == *windows* ]]; then
             cp "target/${{ matrix.rust_target }}/release/statewave-admin.exe" \
-               "../release-staging/statewave-admin-${{ matrix.rust_target }}.exe"
+               "../release-staging/statewave-admin-cli-${{ matrix.cli_suffix }}.exe"
           else
             cp "target/${{ matrix.rust_target }}/release/statewave-admin" \
-               "../release-staging/statewave-admin-${{ matrix.rust_target }}"
+               "../release-staging/statewave-admin-cli-${{ matrix.cli_suffix }}"
           fi
           ls -lh ../release-staging/
 
