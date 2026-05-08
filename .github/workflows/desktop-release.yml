@@ -103,6 +103,15 @@ jobs:
         working-directory: desktop
         run: cargo build -p statewave-admin-cli --release --target ${{ matrix.rust_target }}
 
+      # ── Compute a clean version label by stripping the `desktop-` tag
+      #    prefix, so the release title reads "Statewave Admin v0.1.0 —
+      #    Desktop + CLI" instead of "Statewave Admin Desktop
+      #    desktop-v0.1.0".
+      - name: Compute release version label
+        id: version
+        shell: bash
+        run: echo "label=${GITHUB_REF_NAME#desktop-}" >> "$GITHUB_OUTPUT"
+
       # ── Tauri bundles. The desktop app is distributed exclusively
       #    via GitHub releases (no App Store / Microsoft Store), so we
       #    ship unsigned bundles. First-launch Gatekeeper / SmartScreen
@@ -114,7 +123,7 @@ jobs:
         with:
           projectPath: desktop/crates/gui
           tagName: ${{ github.ref_name }}
-          releaseName: "Statewave Admin Desktop ${{ github.ref_name }}"
+          releaseName: "Statewave Admin ${{ steps.version.outputs.label }} — Desktop + CLI"
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.rust_target }}
