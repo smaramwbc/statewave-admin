@@ -31,3 +31,63 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "chore(ci):"
+
+  # Cargo workspace under /desktop. The Tauri-based desktop app pulls
+  # the entire gtk-rs GTK3 stack (glib, gtk, webkit2gtk, gdk, etc.) on
+  # Linux via wry → webkit2gtk-rs. That stack is upstream-blocked: the
+  # gtk-rs maintainers have marked the GTK3 bindings as "no longer
+  # maintained" (RUSTSEC-2024-0411 .. -0429) and there is no glib >=
+  # 0.20 in a webkit2gtk Rust binding that wry consumes — the eventual
+  # resolution is wry's GTK4 / webkit2gtk6 migration, which Tauri has
+  # not yet released. Until then, security-update PRs against any of
+  # these crates resolve to `security_update_not_possible`, fail the
+  # Dependabot Updates workflow, and produce noisy red builds with no
+  # actionable fix.
+  #
+  # The ignore list below silences exactly that noise. It does NOT
+  # disable advisories — `cargo audit` in CI still surfaces them — and
+  # it does NOT block a future bump: when wry/Tauri release a version
+  # that pulls glib >= 0.20, drop the relevant entries from this list
+  # and Dependabot will resume opening update PRs.
+  #
+  # macOS uses WKWebView and Windows uses WebView2 at runtime, so the
+  # GTK3 advisories only matter for the Linux build target. The known
+  # unsoundness (RUSTSEC-2024-0429 in glib::VariantStrIter) is in a
+  # code path the desktop app does not exercise directly.
+  - package-ecosystem: "cargo"
+    directory: "/desktop"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    open-pull-requests-limit: 10
+    ignore:
+      # gtk-rs GTK3 stack — unmaintained, awaiting wry GTK4 migration.
+      - dependency-name: "atk"
+      - dependency-name: "atk-sys"
+      - dependency-name: "gdk"
+      - dependency-name: "gdk-pixbuf"
+      - dependency-name: "gdk-pixbuf-sys"
+      - dependency-name: "gdk-sys"
+      - dependency-name: "gdkwayland-sys"
+      - dependency-name: "gdkx11"
+      - dependency-name: "gdkx11-sys"
+      - dependency-name: "gio"
+      - dependency-name: "gio-sys"
+      - dependency-name: "glib"
+      - dependency-name: "glib-macros"
+      - dependency-name: "glib-sys"
+      - dependency-name: "gobject-sys"
+      - dependency-name: "gtk"
+      - dependency-name: "gtk-sys"
+      - dependency-name: "gtk3-macros"
+      - dependency-name: "javascriptcore-rs"
+      - dependency-name: "javascriptcore-rs-sys"
+      - dependency-name: "pango"
+      - dependency-name: "pango-sys"
+      - dependency-name: "soup3"
+      - dependency-name: "soup3-sys"
+      - dependency-name: "webkit2gtk"
+      - dependency-name: "webkit2gtk-sys"
