@@ -111,7 +111,7 @@ jobs:
       - name: Update Docker Hub description
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         continue-on-error: true
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
