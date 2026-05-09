@@ -12,7 +12,7 @@ rust-version = "1.78"
 [workspace.dependencies]
 # error handling
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 
 # async runtime + http
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "time"] }
