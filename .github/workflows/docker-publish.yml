@@ -89,14 +89,14 @@ jobs:
           sbom: true
 
       - name: Attest build provenance — Docker Hub
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: index.docker.io/statewavedev/statewave-admin
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
       - name: Attest build provenance — GHCR
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/smaramwbc/statewave-admin
           subject-digest: ${{ steps.push.outputs.digest }}
