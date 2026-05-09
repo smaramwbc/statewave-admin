@@ -33,7 +33,7 @@ rand = "0.8"
 base64 = "0.22"
 
 # config + secrets
-directories = "5"
+directories = "6"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 # CLI ergonomics
