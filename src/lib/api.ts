@@ -64,6 +64,12 @@ export interface MemoryListItem {
   source_episode_ids: string[]
   valid_from: string
   valid_to: string | null
+  /**
+   * Per-memory capability tags consumed by the sensitivity-label
+   * policy layer (#50). Optional — older servers pre-policy-layer
+   * omit the field, in which case treat as untagged (default-allow).
+   */
+  sensitivity_labels?: string[]
   created_at: string
 }
 
@@ -1456,6 +1462,129 @@ export async function fetchReceipt(receiptId: string): Promise<Receipt> {
   const res = await fetch(
     adminUrl(`/admin/receipts/${encodeURIComponent(receiptId)}`),
   )
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+
+// ─── Sensitivity labels & policy bundles (#50) ───────────────────────────────
+//
+// The admin app surfaces three operator workflows on top of the
+// server's policy layer: tag a memory (the only labeling path in v1
+// — compiler/connector auto-tagging is a v2 follow-up), inspect the
+// active policy bundle, and switch which bundle is active.
+
+/**
+ * Replace a memory's sensitivity_labels. The admin proxy forwards
+ * the underlying PATCH /v1/memories/{id}/labels — the server
+ * normalizes (dedup + lowercase + trim) so the canonical set comes
+ * back in the response.
+ */
+export async function setMemoryLabels(
+  memoryId: string,
+  labels: string[],
+  tenantId?: string,
+): Promise<MemoryListItem> {
+  // The admin proxy only forwards /admin/* paths, so labeling goes
+  // through the server's admin shim (/admin/memories/{id}/labels)
+  // which re-uses the same canonicalization + DB write path as
+  // /v1/memories/{id}/labels.
+  const adminPath = tenantId
+    ? `/admin/memories/${encodeURIComponent(memoryId)}/labels?tenant_id=${encodeURIComponent(tenantId)}`
+    : `/admin/memories/${encodeURIComponent(memoryId)}/labels`
+  const res = await fetch(adminUrl(adminPath), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sensitivity_labels: labels }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+
+export interface PolicyRuleSummary {
+  id: string
+  description: string
+  when: Record<string, unknown>
+  action: 'deny' | 'redact'
+}
+
+export interface PolicyBundleSummary {
+  bundle_hash: string
+  tenant_id: string | null
+  active: boolean
+  created_at: string
+}
+
+export interface PolicyBundleDetail extends PolicyBundleSummary {
+  yaml_content: string
+  metadata: Record<string, unknown>
+  rules: PolicyRuleSummary[]
+}
+
+export interface ActivePolicyBundle {
+  bundle_hash: string
+  version: number
+  rule_count: number
+  metadata: Record<string, unknown>
+  rules: PolicyRuleSummary[]
+}
+
+export async function fetchPolicyBundles(
+  tenantId?: string,
+): Promise<{ bundles: PolicyBundleSummary[] }> {
+  const path = tenantId
+    ? `/admin/policy/bundles?tenant_id=${encodeURIComponent(tenantId)}`
+    : '/admin/policy/bundles'
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function fetchPolicyBundle(
+  bundleHash: string,
+): Promise<PolicyBundleDetail> {
+  const res = await fetch(
+    adminUrl(`/admin/policy/bundles/${encodeURIComponent(bundleHash)}`),
+  )
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function fetchActivePolicy(
+  tenantId?: string,
+): Promise<ActivePolicyBundle | null> {
+  const path = tenantId
+    ? `/admin/policy/active?tenant_id=${encodeURIComponent(tenantId)}`
+    : '/admin/policy/active'
+  const res = await fetch(adminUrl(path))
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function uploadPolicyBundle(req: {
+  yaml_content: string
+  tenant_id?: string | null
+  activate?: boolean
+}): Promise<{ bundle_hash: string; rule_count: number; active: boolean }> {
+  const res = await fetch(adminUrl('/admin/policy/bundles'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function activatePolicyBundle(
+  bundleHash: string,
+): Promise<{ bundle_hash: string; active: boolean }> {
+  const res = await fetch(adminUrl('/admin/policy/activate'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bundle_hash: bundleHash }),
+  })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
