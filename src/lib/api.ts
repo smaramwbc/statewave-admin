@@ -1359,3 +1359,103 @@ export async function fetchPersonaHealth(opts: { force?: boolean } = {}): Promis
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+
+// ─── State-assembly receipts (#49) ───────────────────────────────────────────
+//
+// Read-only operator view of the receipts table. Receipts are emitted
+// by the server's context/handoff assembly paths when the per-tenant
+// config or per-request flag asks for them — see
+// docs/state-assembly-receipts.md in the server repository for the
+// full schema and emission policy. Admin can list across tenants; the
+// per-tenant `/v1/receipts` endpoints are what applications should
+// call from inside their app.
+
+export interface ReceiptSelectedEntry {
+  type: 'memory' | 'episode'
+  memory_id?: string
+  kind?: string
+  valid_from?: string | null
+  valid_to?: string | null
+  supersession_status?: 'active' | 'superseded' | 'tombstoned'
+  source_episode_ids?: string[]
+  provenance_hash?: string
+  fact_key?: string | null
+  conflict_status?: 'none' | 'merged' | 'overridden' | 'unresolved'
+  episode_id?: string
+  source?: string
+  event_type?: string
+  occurred_at?: string | null
+  rank: number
+  score?: number | null
+}
+
+export interface ReceiptPolicyBlock {
+  policy_bundle_hash: string | null
+  filters_applied: unknown[]
+  filters_skipped: unknown[]
+  mode: 'log_only' | 'enforce'
+}
+
+export interface ReceiptOutputBlock {
+  context_hash: string
+  context_size_bytes: number
+  canonicalization_version: number
+  token_estimate: number
+}
+
+export interface Receipt {
+  receipt_id: string
+  parent_receipt_id: string | null
+  mode: string
+  query_id: string | null
+  task_id: string | null
+  tenant_id: string | null
+  subject_id: string
+  task: string
+  as_of: string
+  created_at: string
+  selected_entries: ReceiptSelectedEntry[]
+  policy: ReceiptPolicyBlock
+  output: ReceiptOutputBlock
+  region: string | null
+  receipt_signature: string | null
+}
+
+export interface ReceiptListResponse {
+  receipts: Receipt[]
+  next_cursor: string | null
+  limit: number
+}
+
+export interface FetchReceiptsParams {
+  subject_id?: string
+  tenant_id?: string
+  since?: string
+  until?: string
+  cursor?: string
+  limit?: number
+}
+
+export async function fetchReceipts(
+  params: FetchReceiptsParams,
+): Promise<ReceiptListResponse> {
+  const qs = new URLSearchParams()
+  if (params.subject_id) qs.set('subject_id', params.subject_id)
+  if (params.tenant_id) qs.set('tenant_id', params.tenant_id)
+  if (params.since) qs.set('since', params.since)
+  if (params.until) qs.set('until', params.until)
+  if (params.cursor) qs.set('cursor', params.cursor)
+  qs.set('limit', String(params.limit ?? 50))
+  const res = await fetch(adminUrl(`/admin/receipts?${qs}`))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function fetchReceipt(receiptId: string): Promise<Receipt> {
+  const res = await fetch(
+    adminUrl(`/admin/receipts/${encodeURIComponent(receiptId)}`),
+  )
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

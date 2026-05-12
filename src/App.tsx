@@ -11,6 +11,7 @@ import { SubjectDetailPage } from './pages/SubjectDetailPage'
 import { SessionTimelinePage } from './pages/SessionTimelinePage'
 import { JobsPage } from './pages/JobsPage'
 import { WebhooksPage } from './pages/WebhooksPage'
+import { ReceiptsPage } from './pages/ReceiptsPage'
 import { DiagnosticsPage } from './pages/DiagnosticsPage'
 
 export default function App() {
@@ -40,6 +41,7 @@ export default function App() {
                   <Route path="/subjects/:subjectId/sessions/:sessionId/timeline" element={<ErrorBoundary level="page"><SessionTimelinePage /></ErrorBoundary>} />
                   <Route path="/jobs" element={<ErrorBoundary level="page"><JobsPage /></ErrorBoundary>} />
                   <Route path="/webhooks" element={<ErrorBoundary level="page"><WebhooksPage /></ErrorBoundary>} />
+                  <Route path="/receipts" element={<ErrorBoundary level="page"><ReceiptsPage /></ErrorBoundary>} />
                   <Route path="/diagnostics" element={<ErrorBoundary level="page"><DiagnosticsPage /></ErrorBoundary>} />
                 </Route>
               </Routes>
