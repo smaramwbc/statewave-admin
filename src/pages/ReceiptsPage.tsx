@@ -263,6 +263,10 @@ export function ReceiptsPage() {
   }, [hasFilter, subjectFilter, tenantFilter])
 
   useEffect(() => {
+    // Same pattern as WebhooksPage's initial data fetch — the effect
+    // is the synchronisation point between URL params and server data,
+    // and the setState inside loadList() is the whole point.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadList()
   }, [loadList])
 
@@ -270,12 +274,16 @@ export function ReceiptsPage() {
   // re-fetch the whole table.
   useEffect(() => {
     if (!selectedReceiptId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedReceipt(null)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDetailError(null)
       return
     }
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailLoading(true)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailError(null)
     fetchReceipt(selectedReceiptId)
       .then((r) => {
