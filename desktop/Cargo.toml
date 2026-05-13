@@ -39,7 +39,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 # CLI ergonomics
 clap = { version = "4", features = ["derive", "wrap_help"] }
 clap_complete = "4"
-inquire = "0.7"
+inquire = "0.9"
 comfy-table = "7"
 console = "0.15"
 nu-ansi-term = "0.50"
