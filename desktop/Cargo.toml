@@ -44,7 +44,7 @@ comfy-table = "7"
 console = "0.15"
 nu-ansi-term = "0.50"
 fuzzy-matcher = "0.3"
-indicatif = "0.17"
+indicatif = "0.18"
 
 # misc
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
