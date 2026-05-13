@@ -28,7 +28,7 @@ toml = "1.1"
 # crypto (mirrors src/lib/swmem.ts: PBKDF2-SHA256(600k) + AES-256-GCM)
 aes-gcm = "0.10"
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
-sha2 = "0.10"
+sha2 = "0.11"
 rand = "0.9"
 base64 = "0.22"
 
