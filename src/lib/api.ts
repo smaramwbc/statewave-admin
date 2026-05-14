@@ -1554,6 +1554,11 @@ export async function fetchPolicyBundle(
 export async function fetchActivePolicy(
   tenantId?: string,
 ): Promise<ActivePolicyBundle | null> {
+  // The server returns 200 with a JSON body of literal `null` when
+  // no bundle is active for the scope ("not uploaded yet" is the
+  // expected default state, not an error). Older deployments may
+  // still 404 in this case — keep the fallback branch so the admin
+  // app keeps working during a mixed-version rollout.
   const path = tenantId
     ? `/admin/policy/active?tenant_id=${encodeURIComponent(tenantId)}`
     : '/admin/policy/active'
