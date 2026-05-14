@@ -18,10 +18,13 @@ import {
   fetchActivePolicy,
   fetchPolicyBundle,
   fetchPolicyBundles,
+  fetchTenantConfig,
+  patchTenantConfig,
   uploadPolicyBundle,
   type ActivePolicyBundle,
   type PolicyBundleDetail,
   type PolicyBundleSummary,
+  type TenantConfig,
 } from '../lib/api'
 
 
@@ -35,6 +38,234 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
   if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`
   if (diffSeconds < 604800) return `${Math.floor(diffSeconds / 86400)}d ago`
   return date.toLocaleDateString()
+}
+
+
+function TenantConfigCard({ tenantId }: { tenantId: string }) {
+  // Form state is initialised from a GET. The PATCH path supplies
+  // `expected_version` from the most recent successful read so
+  // concurrent admin edits surface as a 409 + clear retry, rather
+  // than a silent lost-update.
+  const [config, setConfig] = useState<TenantConfig | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Form fields. Each holds the user's edit-in-progress value; on
+  // Save we diff against the loaded config and send a PATCH with
+  // only the changed fields (matches the server's merge semantic).
+  const [receipts, setReceipts] = useState<string>('')
+  const [retentionDays, setRetentionDays] = useState<string>('')
+  const [policyMode, setPolicyMode] = useState<string>('')
+  const [requireCaller, setRequireCaller] = useState(false)
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const cfg = await fetchTenantConfig(tenantId)
+      setConfig(cfg)
+      setReceipts(cfg.config.receipts ?? '')
+      setRetentionDays(
+        cfg.config.receipt_retention_days !== undefined
+          ? String(cfg.config.receipt_retention_days)
+          : '',
+      )
+      setPolicyMode(cfg.config.policy_mode ?? '')
+      setRequireCaller(cfg.config.require_caller_identity === true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [tenantId])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void reload()
+  }, [reload])
+
+  const buildPatch = () => {
+    if (!config) return {}
+    const patch: Record<string, unknown> = {}
+    const cur = config.config
+    // receipts (empty string = "don't set this field" — keeps the
+    // current value or the global default).
+    if (receipts && receipts !== cur.receipts) patch.receipts = receipts
+    // retention_days (empty string = unchanged).
+    if (retentionDays !== '') {
+      const n = Number(retentionDays)
+      if (!Number.isNaN(n) && n !== cur.receipt_retention_days) {
+        patch.receipt_retention_days = n
+      }
+    }
+    if (policyMode && policyMode !== cur.policy_mode) patch.policy_mode = policyMode
+    if (requireCaller !== (cur.require_caller_identity === true)) {
+      patch.require_caller_identity = requireCaller
+    }
+    return patch
+  }
+
+  const save = async () => {
+    if (!config) return
+    const patch = buildPatch()
+    if (Object.keys(patch).length === 0) {
+      toast.info('No changes to save')
+      return
+    }
+    setSaving(true)
+    try {
+      const updated = await patchTenantConfig(tenantId, {
+        ...patch,
+        expected_version: config.version,
+      })
+      setConfig(updated)
+      toast.success(
+        `Saved tenant config (v${updated.version})`,
+        {
+          description: `Changed: ${Object.keys(patch).join(', ')}`,
+        },
+      )
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // If the server returned 409, re-read so the form reflects the
+      // current state and the operator can re-apply intentionally.
+      if (msg.includes('version mismatch') || msg.includes('409')) {
+        toast.error('Concurrent edit detected — reloaded', { description: msg })
+        await reload()
+      } else {
+        toast.error('Save failed', { description: msg })
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading && !config) {
+    return (
+      <div className="mb-6 rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+        <p className="text-xs text-theme-muted">Loading tenant config…</p>
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+        <p className="text-xs text-red-400">Failed to load tenant config: {error}</p>
+      </div>
+    )
+  }
+  if (!config) return null
+
+  const policyModeChanged = policyMode && policyMode !== (config.config.policy_mode ?? '')
+  const enforceWarning =
+    policyModeChanged && policyMode === 'enforce' ? (
+      <p className="text-[11px] text-amber-300 mt-2">
+        Switching to <strong>enforce</strong>: denied memories will be dropped from
+        <code className="mx-1 px-1 rounded bg-[var(--theme-surface-1)]">/v1/context</code>
+        and redacted memories will have their content replaced with
+        <code className="mx-1 px-1 rounded bg-[var(--theme-surface-1)]">[REDACTED by policy]</code>.
+        Audit a few days of <code>log_only</code> receipts first.
+      </p>
+    ) : null
+
+  return (
+    <div className="mb-6 rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-xs uppercase tracking-wider text-theme-muted">
+          Tenant configuration
+        </h2>
+        <span className="text-[10px] text-theme-muted">
+          version {config.version}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+        <div>
+          <label
+            htmlFor="tcc-receipts"
+            className="block text-[10px] uppercase tracking-wide text-theme-muted mb-1"
+          >
+            Receipts emission
+          </label>
+          <select
+            id="tcc-receipts"
+            value={receipts}
+            onChange={(e) => setReceipts(e.target.value)}
+            disabled={saving}
+            className="w-full px-2 py-1.5 rounded-md border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary focus:outline-none focus:border-accent"
+          >
+            <option value="">(unset — defaults to on_request)</option>
+            <option value="on_request">on_request</option>
+            <option value="always">always</option>
+            <option value="never">never</option>
+          </select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="tcc-retention"
+            className="block text-[10px] uppercase tracking-wide text-theme-muted mb-1"
+          >
+            Receipt retention (days, 0 = forever)
+          </label>
+          <input
+            id="tcc-retention"
+            type="number"
+            min={0}
+            value={retentionDays}
+            onChange={(e) => setRetentionDays(e.target.value)}
+            placeholder="(unset)"
+            disabled={saving}
+            className="w-full px-2 py-1.5 rounded-md border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary focus:outline-none focus:border-accent"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="tcc-policy-mode"
+            className="block text-[10px] uppercase tracking-wide text-theme-muted mb-1"
+          >
+            Policy mode
+          </label>
+          <select
+            id="tcc-policy-mode"
+            value={policyMode}
+            onChange={(e) => setPolicyMode(e.target.value)}
+            disabled={saving}
+            className="w-full px-2 py-1.5 rounded-md border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary focus:outline-none focus:border-accent"
+          >
+            <option value="">(unset — defaults to log_only)</option>
+            <option value="log_only">log_only</option>
+            <option value="enforce">enforce</option>
+          </select>
+        </div>
+
+        <div className="flex items-end pb-1">
+          <label className="inline-flex items-center gap-2 text-xs text-theme-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={requireCaller}
+              onChange={(e) => setRequireCaller(e.target.checked)}
+              disabled={saving}
+            />
+            Require caller identity (401 on anonymous)
+          </label>
+        </div>
+      </div>
+
+      {enforceWarning}
+
+      <div className="flex justify-end gap-2 mt-3">
+        <Button variant="ghost" size="sm" onClick={() => void reload()} disabled={saving}>
+          Reset
+        </Button>
+        <Button variant="primary" size="sm" onClick={() => void save()} loading={saving}>
+          Save changes
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 
@@ -294,6 +525,15 @@ export function PolicyPage() {
             </div>
           )
         )}
+
+        {/* Tenant configuration — receipts emission, retention,
+            policy_mode enforce flip, require_caller_identity. Only
+            renders when a tenant scope is selected: this surface
+            doesn't have a "global tenant config" concept today (the
+            JSONB sits in tenant_configs which is keyed on tenant_id;
+            a NULL row would conflict with that semantic). Global
+            defaults live in the server's env vars, not here. */}
+        {tenantFilter && <TenantConfigCard tenantId={tenantFilter} />}
 
         {/* All bundles */}
         <h2 className="text-xs uppercase tracking-wider text-theme-muted mb-2 mt-6">
