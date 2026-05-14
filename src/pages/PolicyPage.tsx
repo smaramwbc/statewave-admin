@@ -386,7 +386,13 @@ export function PolicyPage() {
     setDetailLoading(true)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailError(null)
-    fetchPolicyBundle(selectedHash)
+    // Scope the bundle detail fetch to the current tenant filter.
+    // Post-#79 the same hash can live in multiple scopes, so a
+    // detail fetch without tenant context may surface the wrong row
+    // (or 404 with a disambiguation hint). The Policy page already
+    // displays one tenant scope at a time, so `tenantFilter` is the
+    // right disambiguator.
+    fetchPolicyBundle(selectedHash, tenantFilter || null)
       .then((b) => !cancelled && setSelectedBundle(b))
       .catch((e) => {
         if (!cancelled) {
@@ -401,11 +407,12 @@ export function PolicyPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedHash])
+  }, [selectedHash, tenantFilter])
 
   const runActivate = async (hash: string) => {
     try {
-      await activatePolicyBundle(hash)
+      // Same disambiguation rationale as fetchPolicyBundle above.
+      await activatePolicyBundle(hash, tenantFilter || null)
       toast.success('Bundle activated')
       await loadData()
     } catch (e) {

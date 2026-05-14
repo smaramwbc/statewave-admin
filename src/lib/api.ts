@@ -1543,10 +1543,22 @@ export async function fetchPolicyBundles(
 
 export async function fetchPolicyBundle(
   bundleHash: string,
+  tenantId?: string | null,
 ): Promise<PolicyBundleDetail> {
-  const res = await fetch(
-    adminUrl(`/admin/policy/bundles/${encodeURIComponent(bundleHash)}`),
-  )
+  // Post-#79 the same bundle_hash can exist in multiple scopes
+  // (global + N tenants). Pass `tenantId` (null = global scope, a
+  // string = that tenant's row) so the server returns the right
+  // row. Omitting it falls back to "prefer global, then 404 with a
+  // disambiguation hint" — wire-compatible with the old endpoint
+  // for callers that don't know about the new param.
+  const base = `/admin/policy/bundles/${encodeURIComponent(bundleHash)}`
+  const path =
+    tenantId === undefined
+      ? base
+      : tenantId === null
+        ? `${base}` // global scope — server defaults to NULL tenant_id when no param
+        : `${base}?tenant_id=${encodeURIComponent(tenantId)}`
+  const res = await fetch(adminUrl(path))
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
@@ -1584,11 +1596,19 @@ export async function uploadPolicyBundle(req: {
 
 export async function activatePolicyBundle(
   bundleHash: string,
+  tenantId?: string | null,
 ): Promise<{ bundle_hash: string; active: boolean }> {
+  // Pass `tenantId` (null = global scope) so the server activates
+  // exactly the (tenant, hash) row — post-#79 the hash alone is no
+  // longer unique. Omitting the param sends `tenant_id: null` for
+  // the global scope, matching server default behaviour.
   const res = await fetch(adminUrl('/admin/policy/activate'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bundle_hash: bundleHash }),
+    body: JSON.stringify({
+      bundle_hash: bundleHash,
+      tenant_id: tenantId ?? null,
+    }),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
