@@ -4,7 +4,7 @@ Operator console for Statewave servers — manage subjects, episodes, memories, 
 
 [![Image](https://img.shields.io/docker/image-size/statewavedev/statewave-admin/latest?label=image)](https://hub.docker.com/r/statewavedev/statewave-admin)
 [![Pulls](https://img.shields.io/docker/pulls/statewavedev/statewave-admin)](https://hub.docker.com/r/statewavedev/statewave-admin)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](https://github.com/smaramwbc/statewave-admin/blob/master/LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](https://github.com/smaramwbc/statewave-admin/blob/main/LICENSE)
 
 Multi-arch (`linux/amd64`, `linux/arm64`), built with provenance + SBOM and signed via Sigstore.
 
@@ -38,7 +38,7 @@ services:
 
 | Tag | Meaning |
 |---|---|
-| `latest` | Tip of `master` |
+| `latest` | Tip of `main` |
 | `X.Y.Z` | Semver release |
 | `X.Y`, `X` | Latest in the minor / major line |
 | `sha-<7>` | Specific commit |
