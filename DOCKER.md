@@ -4,7 +4,7 @@ Operator console for Statewave servers — manage subjects, episodes, memories, 
 
 [![Image](https://img.shields.io/docker/image-size/statewavedev/statewave-admin/latest?label=image)](https://hub.docker.com/r/statewavedev/statewave-admin)
 [![Pulls](https://img.shields.io/docker/pulls/statewavedev/statewave-admin)](https://hub.docker.com/r/statewavedev/statewave-admin)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](https://github.com/smaramwbc/statewave-admin/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/smaramwbc/statewave-admin/blob/main/LICENSE)
 
 Multi-arch (`linux/amd64`, `linux/arm64`), built with provenance + SBOM and signed via Sigstore.
 
@@ -55,4 +55,4 @@ gh attestation verify \
 
 - Repository: <https://github.com/smaramwbc/statewave-admin>
 - Documentation: <https://statewave.ai>
-- License: AGPL-3.0
+- License: Apache-2.0

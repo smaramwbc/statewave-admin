@@ -71,7 +71,7 @@ jobs:
             org.opencontainers.image.title=Statewave Admin
             org.opencontainers.image.description=Statewave admin console — operator UI for Statewave servers
             org.opencontainers.image.vendor=Statewave
-            org.opencontainers.image.licenses=AGPL-3.0
+            org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.source=https://github.com/smaramwbc/statewave-admin
             org.opencontainers.image.documentation=https://statewave.ai
 
