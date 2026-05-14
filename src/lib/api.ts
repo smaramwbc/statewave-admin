@@ -1593,3 +1593,62 @@ export async function activatePolicyBundle(
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+
+// ─── Tenant configuration (issue #50 follow-up — closes the API gap
+// for setting policy_mode=enforce and require_caller_identity=true) ─────────
+
+
+export interface TenantConfig {
+  tenant_id: string
+  config: {
+    receipts?: 'always' | 'on_request' | 'never'
+    receipt_retention_days?: number
+    policy_mode?: 'log_only' | 'enforce'
+    require_caller_identity?: boolean
+    // Unknown keys preserved for forward-compat with future per-tenant
+    // knobs (rate-limit tiers, webhook URLs, etc.) the server-side
+    // PATCH merges around.
+    [key: string]: unknown
+  }
+  version: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface TenantConfigPatch {
+  receipts?: 'always' | 'on_request' | 'never'
+  receipt_retention_days?: number
+  policy_mode?: 'log_only' | 'enforce'
+  require_caller_identity?: boolean
+  /**
+   * Pass the `version` from a prior GET to fail-fast on lost-update
+   * races. The server returns 409 with a clear message on mismatch
+   * so the UI can re-fetch + retry.
+   */
+  expected_version?: number
+}
+
+export async function fetchTenantConfig(tenantId: string): Promise<TenantConfig> {
+  const res = await fetch(
+    adminUrl(`/admin/tenants/${encodeURIComponent(tenantId)}/config`),
+  )
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function patchTenantConfig(
+  tenantId: string,
+  patch: TenantConfigPatch,
+): Promise<TenantConfig> {
+  const res = await fetch(
+    adminUrl(`/admin/tenants/${encodeURIComponent(tenantId)}/config`),
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
+  )
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
