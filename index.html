@@ -26,7 +26,12 @@
     <!-- iOS Safari does not honor the manifest's standalone display, so
          install-to-home-screen behavior is opted into via these legacy
          apple-* meta tags. The status bar style "black-translucent" keeps
-         the app shell flush under the notch with the nav drawing through. -->
+         the app shell flush under the notch with the nav drawing through.
+         The vendor-neutral `mobile-web-app-capable` tag is the modern
+         replacement; both ship so Chrome, Edge, and modern WebViews stop
+         logging the apple-* deprecation warning to the console while iOS
+         Safari continues to honor its legacy tag. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Statewave" />
