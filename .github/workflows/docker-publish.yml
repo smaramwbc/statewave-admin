@@ -8,7 +8,7 @@ name: Docker publish
 # via Sigstore through actions/attest-build-provenance.
 #
 # Triggers:
-#   - push to master         → :latest, :sha-<short>
+#   - push to main           → :latest, :sha-<short>
 #   - push of v* tag         → :X.Y.Z, :X.Y, :X (semver)
 #   - workflow_dispatch      → manual rerun
 #
@@ -19,7 +19,7 @@ name: Docker publish
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -109,7 +109,7 @@ jobs:
       # Token with `Repo Admin` scope. The image publish above must not be
       # gated on the description sync succeeding.
       - name: Update Docker Hub description
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
         uses: peter-evans/dockerhub-description@v5
         with:
