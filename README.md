@@ -3,7 +3,7 @@
 [![CI](https://github.com/smaramwbc/statewave-admin/workflows/CI/badge.svg)](https://github.com/smaramwbc/statewave-admin/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Operator console for Statewave instances — system health, subject explorer, compile jobs, webhook status, and usage metering.
+Operator console for Statewave instances — system health, subject explorer, compile jobs, webhook status, usage metering, state-assembly receipts, sensitivity-label policy, and per-tenant configuration.
 
 > **Part of the Statewave ecosystem:** [Server](https://github.com/smaramwbc/statewave) · [Python SDK](https://github.com/smaramwbc/statewave-py) · [TypeScript SDK](https://github.com/smaramwbc/statewave-ts) · [Docs](https://github.com/smaramwbc/statewave-docs) · [Examples](https://github.com/smaramwbc/statewave-examples) · [Website + demo](https://statewave.ai) · **Admin**
 >
@@ -561,6 +561,19 @@ All under `/admin/memory/*`, gated by the existing X-API-Key middleware:
 | `POST /admin/memory/export` | Build a versioned plaintext export payload |
 | `POST /admin/memory/import` | Ingest a previously decrypted payload |
 | `POST /admin/docs-pack/reseed` | **Deprecated alias** — backward-compatible shim for `/admin/memory/support/reseed`. Same body, same response, same vendor-neutral service; kept so older operator scripts keep working. No GitHub token required. |
+
+## Governance & audit (v0.8)
+
+The admin surfaces the [state-assembly receipts](https://github.com/smaramwbc/statewave-docs/blob/main/receipts.md) and [sensitivity-labels / policy](https://github.com/smaramwbc/statewave-docs/blob/main/sensitivity-labels.md) layer added in server v0.8.
+
+| Surface | What it does | Backend |
+|---|---|---|
+| **Receipts** (`/receipts`) | Cursor-paginated, newest-first listing of state-assembly receipts. Drill into any receipt to inspect the SHA-256 context hash, the selected entries (with supersession status), policy decisions (`filters_applied` / `filters_skipped`), and the caller identity that produced the bundle. | `/admin/receipts` |
+| **Policy** (`/policy`) | Upload a policy bundle YAML, view its parsed rules, and activate it against a specific tenant. The page shows the currently active bundle and its mode (`log_only` / `enforce`) per tenant. | `/admin/policy/*` |
+| **Tenant config** (on `/policy`) | Per-tenant form for `policy_mode`, `require_caller_identity`, and the active bundle hash. Uses optimistic concurrency (`expected_version`) so two operators editing the same tenant cannot silently overwrite each other. | `/admin/tenants/{id}/config` |
+| **Sensitivity labels** (Memory detail) | Edit `sensitivity_labels` on any memory directly from the Memory detail drawer on the Subjects page. The server normalizes (lowercase, trim, dedup). Memories with labels become subject to whatever policy bundle is active for the tenant. | `/admin/memories/{id}/labels` |
+
+Receipts are the system's audit trail; the policy engine is what they're an audit of. In the default `log_only` mode every retrieval is recorded with full policy decisions but nothing is filtered — operators see exactly what a future `enforce` rollout would block before flipping the switch.
 
 ## Deployment
 
