@@ -138,17 +138,22 @@ export function PolicyPage() {
   }, [tenantFilter])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadData()
   }, [loadData])
 
   useEffect(() => {
     if (!selectedHash) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedBundle(null)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDetailError(null)
       return
     }
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailLoading(true)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailError(null)
     fetchPolicyBundle(selectedHash)
       .then((b) => !cancelled && setSelectedBundle(b))

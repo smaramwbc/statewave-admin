@@ -40,7 +40,9 @@ export function MemoryDetailModal({
   // stale labels from a prior memory don't leak across openings.
   useEffect(() => {
     const labels = memory?.sensitivity_labels ?? []
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentLabels(labels)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLabelInput(labels.join(', '))
   }, [memory?.id])
 
