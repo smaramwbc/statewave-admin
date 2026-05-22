@@ -52,6 +52,8 @@ docker compose up -d
 
 The compose ships `ADMIN_AUTH_DISABLED=true` for first-run convenience. For production override see [Production override](#production-override) below.
 
+New to Statewave? The [Getting Started guide](https://github.com/smaramwbc/statewave-docs/blob/main/getting-started.md) walks through the full server setup, then storing and retrieving your first memory.
+
 ### B. Standalone Docker container
 
 For Kubernetes, Nomad, ECS, App Runner, Cloud Run, Render — anywhere that runs an OCI image:
