@@ -1,0 +1,15 @@
+# Statewave Admin — robots.txt
+#
+# admin.statewave.ai is the operator console for a self-hosted Statewave
+# instance. It's behind a server-side auth gate in real deployments, but
+# this repo's public Vercel preview is reachable on the open internet.
+# Either way, nothing here is content meant for search indexing — and
+# accidentally surfacing the admin URL in AI Overviews / SERPs is the
+# opposite of useful. Disallow every crawler explicitly.
+#
+# Defense-in-depth: the corresponding <meta name="robots"
+# content="noindex,nofollow"> in index.html catches crawlers that ignore
+# robots.txt but honor on-page directives.
+
+User-agent: *
+Disallow: /
