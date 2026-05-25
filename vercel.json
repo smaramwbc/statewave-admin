@@ -2,7 +2,7 @@
   "rewrites": [
     { "source": "/api/:slug*", "destination": "/api/dispatch?_path=:slug*" },
     {
-      "source": "/((?!api/|robots\\.txt$|sitemap\\.xml$|manifest\\.webmanifest$|sw\\.js$|offline\\.html$|favicon\\.svg$|apple-touch-icon\\.png$|.*\\.(png|jpg|jpeg|gif|webp|avif|svg|woff2?|ttf|eot|map)$).*)",
+      "source": "/((?!api/|.*\\.).*)",
       "destination": "/index.html"
     }
   ]
