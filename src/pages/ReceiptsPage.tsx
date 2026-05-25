@@ -17,9 +17,12 @@ import { PullToRefresh } from '../components/PullToRefresh'
 import {
   fetchReceipt,
   fetchReceipts,
+  replayReceipt,
   type Receipt,
   type ReceiptListResponse,
+  type ReceiptReplayResponse,
 } from '../lib/api'
+import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
 
@@ -92,9 +95,35 @@ function ReceiptRow({
 }
 
 
-function ReceiptDetail({ receipt }: { receipt: Receipt }) {
+type ReplayState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ok'; result: ReceiptReplayResponse }
+  | { status: 'error'; message: string }
+
+function ReceiptDetail({
+  receipt,
+  replayState,
+  onReplay,
+}: {
+  receipt: Receipt
+  replayState: ReplayState
+  onReplay: () => void
+}) {
   const mems = receipt.selected_entries.filter((e) => e.type === 'memory')
   const eps = receipt.selected_entries.filter((e) => e.type === 'episode')
+
+  // v0.9 (#159) — receipts carry an embedded policy_snapshot. Older
+  // receipts don't, and the replay endpoint refuses them with 422.
+  // Surface the snapshot status inline so the operator understands
+  // why the button may be disabled.
+  const rawPolicySnapshot = (receipt as unknown as { policy_snapshot?: unknown })
+    .policy_snapshot as
+    | { bundle_hash: string | null; bundle_yaml: string | null; captured_at?: string }
+    | null
+    | undefined
+  const hasSnapshot = Boolean(rawPolicySnapshot)
+  const hasActiveBundle = Boolean(rawPolicySnapshot?.bundle_yaml)
 
   return (
     <div className="space-y-4 text-xs">
@@ -151,6 +180,62 @@ function ReceiptDetail({ receipt }: { receipt: Receipt }) {
           <dt className="text-theme-muted">filters_skipped</dt>
           <dd className="tabular-nums">{receipt.policy.filters_skipped.length}</dd>
         </dl>
+      </div>
+
+      {/* v0.9 #159 — replay panel. The policy_snapshot envelope is
+          required for replay; we display its status either way so an
+          operator can tell a pre-v0.9 receipt apart from a v0.9
+          receipt that simply had no active bundle. */}
+      <div>
+        <h4 className="text-[11px] uppercase tracking-wider text-theme-muted mb-1">
+          Replay
+        </h4>
+        <p className="text-theme-secondary mb-2">
+          {hasSnapshot ? (
+            hasActiveBundle ? (
+              <>
+                A policy snapshot is embedded on this receipt
+                (captured at{' '}
+                <span className="font-mono">
+                  {rawPolicySnapshot?.captured_at ?? '—'}
+                </span>
+                ). Replay re-runs the original retrieval against{' '}
+                <em>current</em> memories using this original bundle.
+              </>
+            ) : (
+              <>
+                Snapshot present, but no policy bundle was active at
+                emission. Replay will run against current memories
+                with the no-policy fallback.
+              </>
+            )
+          ) : (
+            <span className="text-theme-muted italic">
+              Pre-v0.9 receipt — no policy snapshot captured.
+              Replay is unavailable for this row.
+            </span>
+          )}
+        </p>
+        {hasSnapshot && (
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={replayState.status === 'loading'}
+            onClick={onReplay}
+          >
+            {replayState.status === 'loading'
+              ? 'Replaying…'
+              : 'Replay this receipt'}
+          </Button>
+        )}
+        {replayState.status === 'error' && (
+          <p className="mt-2 text-red-400 break-anywhere">
+            {replayState.message}
+          </p>
+        )}
+        {replayState.status === 'ok' && (
+          <ReplayDiffPanel result={replayState.result} />
+        )}
       </div>
 
       {mems.length > 0 && (
@@ -213,6 +298,133 @@ function ReceiptDetail({ receipt }: { receipt: Receipt }) {
 }
 
 
+function ReplayDiffPanel({ result }: { result: ReceiptReplayResponse }) {
+  const { diff, replay_receipt_id } = result
+  const entriesChanged =
+    diff.selected_entries.added.length + diff.selected_entries.removed.length
+  const filtersChanged =
+    diff.filters_applied.added.length + diff.filters_applied.removed.length
+
+  return (
+    <div className="mt-3 space-y-3 rounded-lg border border-theme-border bg-[var(--theme-surface-1)] p-3">
+      <div className="flex items-center gap-2">
+        <Badge
+          variant={diff.context_hash.changed ? 'warning' : 'success'}
+        >
+          {diff.context_hash.changed
+            ? 'Output differs'
+            : 'Output identical'}
+        </Badge>
+        <Badge variant={entriesChanged === 0 ? 'success' : 'warning'}>
+          {entriesChanged === 0
+            ? 'Same entries'
+            : `${diff.selected_entries.added.length} added · ${diff.selected_entries.removed.length} removed`}
+        </Badge>
+        <Badge variant={filtersChanged === 0 ? 'success' : 'warning'}>
+          {filtersChanged === 0
+            ? 'Same filters'
+            : `${diff.filters_applied.added.length} added · ${diff.filters_applied.removed.length} removed`}
+        </Badge>
+        <span className="ml-auto text-[10px] text-theme-muted">
+          common: {diff.selected_entries.common}
+        </span>
+      </div>
+
+      <dl className="grid grid-cols-[auto_1fr] gap-y-1 gap-x-3">
+        <dt className="text-theme-muted">replay receipt</dt>
+        <dd className="font-mono break-anywhere">
+          {replay_receipt_id ?? (
+            <span className="text-theme-muted italic">
+              (write failed — diff is still authoritative)
+            </span>
+          )}
+        </dd>
+        <dt className="text-theme-muted">original hash</dt>
+        <dd className="font-mono break-anywhere">
+          {diff.context_hash.original ?? '—'}
+        </dd>
+        <dt className="text-theme-muted">replay hash</dt>
+        <dd className="font-mono break-anywhere">
+          {diff.context_hash.replay ?? '—'}
+        </dd>
+      </dl>
+
+      {diff.selected_entries.added.length > 0 && (
+        <details className="text-[11px]">
+          <summary className="cursor-pointer text-theme-secondary">
+            Added entries ({diff.selected_entries.added.length})
+          </summary>
+          <ul className="mt-1 space-y-1 max-h-40 overflow-y-auto">
+            {diff.selected_entries.added.map((entry, i) => (
+              <li
+                key={`add-${i}`}
+                className="rounded border border-theme-border bg-[var(--theme-card-bg)] px-2 py-1 font-mono break-anywhere"
+              >
+                <Badge variant="success">added</Badge>{' '}
+                <span className="text-theme-muted">{entry.type}</span>{' '}
+                {entry.memory_id ?? entry.episode_id ?? '—'}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {diff.selected_entries.removed.length > 0 && (
+        <details className="text-[11px]">
+          <summary className="cursor-pointer text-theme-secondary">
+            Removed entries ({diff.selected_entries.removed.length})
+          </summary>
+          <ul className="mt-1 space-y-1 max-h-40 overflow-y-auto">
+            {diff.selected_entries.removed.map((entry, i) => (
+              <li
+                key={`rem-${i}`}
+                className="rounded border border-theme-border bg-[var(--theme-card-bg)] px-2 py-1 font-mono break-anywhere"
+              >
+                <Badge variant="error">removed</Badge>{' '}
+                <span className="text-theme-muted">{entry.type}</span>{' '}
+                {entry.memory_id ?? entry.episode_id ?? '—'}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {filtersChanged > 0 && (
+        <details className="text-[11px]">
+          <summary className="cursor-pointer text-theme-secondary">
+            Filters changed ({filtersChanged})
+          </summary>
+          <ul className="mt-1 space-y-1 max-h-40 overflow-y-auto">
+            {diff.filters_applied.added.map((f, i) => (
+              <li
+                key={`f-add-${i}`}
+                className="rounded border border-theme-border bg-[var(--theme-card-bg)] px-2 py-1"
+              >
+                <Badge variant="success">added</Badge>{' '}
+                <span className="font-mono">{f.rule_id ?? '—'}</span>{' '}
+                <span className="text-theme-muted">→ {f.action ?? '?'}</span>{' '}
+                on {f.memory_id ?? '—'}
+              </li>
+            ))}
+            {diff.filters_applied.removed.map((f, i) => (
+              <li
+                key={`f-rem-${i}`}
+                className="rounded border border-theme-border bg-[var(--theme-card-bg)] px-2 py-1"
+              >
+                <Badge variant="error">removed</Badge>{' '}
+                <span className="font-mono">{f.rule_id ?? '—'}</span>{' '}
+                <span className="text-theme-muted">→ {f.action ?? '?'}</span>{' '}
+                on {f.memory_id ?? '—'}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
+}
+
+
 export function ReceiptsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const subjectFilter = searchParams.get('subject_id') ?? ''
@@ -226,6 +438,7 @@ export function ReceiptsPage() {
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [replayState, setReplayState] = useState<ReplayState>({ status: 'idle' })
 
   const hasFilter = Boolean(subjectFilter || tenantFilter)
 
@@ -278,8 +491,14 @@ export function ReceiptsPage() {
       setSelectedReceipt(null)
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setDetailError(null)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setReplayState({ status: 'idle' })
       return
     }
+    // New selection — clear any prior replay output so it doesn't
+    // leak across receipts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReplayState({ status: 'idle' })
     let cancelled = false
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailLoading(true)
@@ -305,6 +524,27 @@ export function ReceiptsPage() {
   }, [selectedReceiptId])
 
   const closeDetail = () => setSelectedReceiptId(null)
+
+  const handleReplay = useCallback(async () => {
+    if (!selectedReceiptId) return
+    setReplayState({ status: 'loading' })
+    try {
+      const result = await replayReceipt(selectedReceiptId)
+      setReplayState({ status: 'ok', result })
+      // The diff envelope itself is the success surface; a toast
+      // keeps the modal anchored in the operator's attention.
+      toast.success('Replay complete', {
+        description: result.diff.context_hash.changed
+          ? 'Output differs — see diff in the modal.'
+          : 'Output identical to original.',
+      })
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Replay failed'
+      setReplayState({ status: 'error', message })
+      toast.error('Replay failed', { description: message })
+    }
+  }, [selectedReceiptId])
 
   const rows = useMemo(() => data?.receipts ?? [], [data])
 
@@ -462,7 +702,13 @@ export function ReceiptsPage() {
           {detailError && (
             <p className="text-xs text-red-400 break-anywhere">{detailError}</p>
           )}
-          {selectedReceipt && <ReceiptDetail receipt={selectedReceipt} />}
+          {selectedReceipt && (
+            <ReceiptDetail
+              receipt={selectedReceipt}
+              replayState={replayState}
+              onReplay={handleReplay}
+            />
+          )}
           <div className="flex justify-end mt-4">
             <Button variant="ghost" size="sm" onClick={closeDetail}>
               Close

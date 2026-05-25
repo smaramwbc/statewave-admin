@@ -1672,3 +1672,163 @@ export async function patchTenantConfig(
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+
+// ─── Auto-labeling: review + promote (v0.9 #158 / #160) ─────────────────────
+
+export interface SuggestedLabelMemoryItem {
+  id: string
+  subject_id: string
+  tenant_id: string | null
+  kind: string
+  content: string
+  summary: string
+  suggested_labels: string[]
+  sensitivity_labels: string[]
+  created_at: string
+}
+
+export interface LabelCatalogueEntry {
+  label: string
+  description: string
+}
+
+export interface SuggestedLabelsListResponse {
+  memories: SuggestedLabelMemoryItem[]
+  total: number
+  limit: number
+  offset: number
+  catalogue: LabelCatalogueEntry[]
+}
+
+export interface FetchSuggestedLabelsParams {
+  tenant_id?: string
+  subject_id?: string
+  label?: string
+  limit?: number
+  offset?: number
+}
+
+/**
+ * List every memory with at least one auto-labeling suggestion. The
+ * server backs this with a GIN-indexed overlap query (migration 0022),
+ * so the optional `label` filter stays cheap even at scale.
+ *
+ * The endpoint is available regardless of whether
+ * `STATEWAVE_AUTO_LABELING_ENABLED` is set — operators flipping the
+ * flag off still need to see and triage legacy suggestions.
+ */
+export async function fetchSuggestedLabels(
+  params: FetchSuggestedLabelsParams = {},
+): Promise<SuggestedLabelsListResponse> {
+  const qs = new URLSearchParams()
+  if (params.tenant_id) qs.set('tenant_id', params.tenant_id)
+  if (params.subject_id) qs.set('subject_id', params.subject_id)
+  if (params.label) qs.set('label', params.label)
+  qs.set('limit', String(params.limit ?? 50))
+  qs.set('offset', String(params.offset ?? 0))
+  const path = `/admin/memories/with-suggested-labels?${qs}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export interface PromoteLabelsResponse {
+  memory_id: string
+  promoted: string[]
+  sensitivity_labels: string[]
+  suggested_labels: string[]
+}
+
+/**
+ * Promote a subset of a memory's `suggested_labels` into its
+ * authoritative `sensitivity_labels`. Every label in `labels` MUST
+ * already be on the memory's suggested list — the server rejects
+ * ad-hoc writes via this endpoint with HTTP 422
+ * `promote_labels.not_suggested`. This keeps promotion strictly
+ * review-driven (use `setMemoryLabels` for direct tenant-side writes).
+ *
+ * The server stamps an audit entry on `memory.metadata.label_promotions`
+ * (timestamp + labels + null promoted_by until admin identity lands).
+ * Promoted labels are removed from `suggested_labels` so the review
+ * queue does not re-surface them.
+ */
+export async function promoteSuggestedLabels(
+  memoryId: string,
+  labels: string[],
+  tenantId?: string,
+): Promise<PromoteLabelsResponse> {
+  const qs = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
+  const path = `/admin/memories/${encodeURIComponent(memoryId)}/promote-labels${qs}`
+  const res = await fetch(adminUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ labels }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+
+// ─── Receipt replay (v0.9 #159) ─────────────────────────────────────────────
+
+export interface ReceiptReplayDiffEntry {
+  type: 'memory' | 'episode'
+  memory_id?: string
+  episode_id?: string
+  kind?: string
+  rank?: number
+  [key: string]: unknown
+}
+
+export interface ReceiptReplayDiffFilter {
+  rule_id?: string
+  memory_id?: string
+  action?: string
+  [key: string]: unknown
+}
+
+export interface ReceiptReplayDiff {
+  context_hash: {
+    original: string | null
+    replay: string | null
+    changed: boolean
+  }
+  selected_entries: {
+    added: ReceiptReplayDiffEntry[]
+    removed: ReceiptReplayDiffEntry[]
+    common: number
+  }
+  filters_applied: {
+    added: ReceiptReplayDiffFilter[]
+    removed: ReceiptReplayDiffFilter[]
+  }
+}
+
+export interface ReceiptReplayResponse {
+  original_receipt_id: string
+  /** Null when the replay-receipt write failed; the diff is still
+   * authoritative — same fail-open contract as the rest of the
+   * receipt surface (agent serving is never blocked by audit infra). */
+  replay_receipt_id: string | null
+  diff: ReceiptReplayDiff
+}
+
+/**
+ * Re-run the original retrieval against the *current* memory state
+ * but with the *original* policy bundle captured on the receipt's
+ * snapshot. Returns the diff envelope + the new child receipt id.
+ *
+ * The endpoint is read-only on memories. Pre-v0.9 receipts (no
+ * snapshot) return 422 `unreplayable.missing_policy_snapshot`. The
+ * thrown Error message carries the server's structured error.message,
+ * so callers can render it directly.
+ */
+export async function replayReceipt(
+  receiptId: string,
+): Promise<ReceiptReplayResponse> {
+  const path = `/admin/receipts/${encodeURIComponent(receiptId)}/replay`
+  const res = await fetch(adminUrl(path), { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

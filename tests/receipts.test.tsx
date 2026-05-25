@@ -156,3 +156,143 @@ describe('ReceiptsPage', () => {
     )
   })
 })
+
+
+// ─── Replay button (v0.9 #159 / #160) ────────────────────────────────────────
+
+const SAMPLE_REPLAY_RESPONSE = {
+  original_receipt_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+  replay_receipt_id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+  diff: {
+    context_hash: {
+      original: 'a'.repeat(64),
+      replay: 'b'.repeat(64),
+      changed: true,
+    },
+    selected_entries: {
+      added: [
+        {
+          type: 'memory',
+          memory_id: '00000000-0000-0000-0000-000000000002',
+          rank: 1,
+        },
+      ],
+      removed: [],
+      common: 1,
+    },
+    filters_applied: { added: [], removed: [] },
+  },
+}
+
+function mockFetchWithReplay(options?: { replayFails?: boolean; preV09?: boolean }) {
+  const receipt = options?.preV09
+    ? { ...SAMPLE_RECEIPT }
+    : {
+        ...SAMPLE_RECEIPT,
+        policy_snapshot: {
+          bundle_hash: 'sha256-xyz',
+          bundle_yaml: 'version: 1\nrules: []\n',
+          captured_at: '2026-05-25T12:00:00+00:00',
+        },
+      }
+
+  return vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    const decoded = decodeURIComponent(url)
+    const method = init?.method ?? 'GET'
+
+    if (
+      method === 'POST' &&
+      decoded.includes('/admin/receipts/') &&
+      decoded.includes('/replay')
+    ) {
+      if (options?.replayFails) {
+        return Promise.resolve({
+          ok: false,
+          status: 422,
+          json: async () => ({
+            error: { code: 'unreplayable.invalid_snapshot', message: 'bad yaml' },
+          }),
+        } as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => SAMPLE_REPLAY_RESPONSE,
+      } as Response)
+    }
+    if (decoded.includes('/admin/receipts/01ARZ3NDEKTSV4RRFFQ69G5FAV')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => receipt,
+      } as Response)
+    }
+    if (decoded.includes('/admin/receipts')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          receipts: [SAMPLE_RECEIPT],
+          next_cursor: null,
+          limit: 50,
+        }),
+      } as Response)
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) } as Response)
+  })
+}
+
+describe('ReceiptsPage — replay button (v0.9 #159 / #160)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+  afterEach(() => cleanup())
+
+  it('shows the replay button when the receipt has a policy snapshot', async () => {
+    mockFetchWithReplay()
+    renderPage('?subject_id=user-42')
+    const taskCells = await screen.findAllByText(/What plan is the customer on/i)
+    const rowCell = taskCells.find((el) => el.closest('tr')) ?? taskCells[0]
+    fireEvent.click(rowCell.closest('tr')!)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Replay this receipt/i })).toBeInTheDocument()
+    })
+  })
+
+  it('hides the replay button for pre-v0.9 receipts and explains why', async () => {
+    mockFetchWithReplay({ preV09: true })
+    renderPage('?subject_id=user-42')
+    const taskCells = await screen.findAllByText(/What plan is the customer on/i)
+    const rowCell = taskCells.find((el) => el.closest('tr')) ?? taskCells[0]
+    fireEvent.click(rowCell.closest('tr')!)
+    await waitFor(() =>
+      expect(screen.getByText(/Pre-v0.9 receipt/i)).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Replay this receipt/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the diff envelope after a successful replay', async () => {
+    mockFetchWithReplay()
+    renderPage('?subject_id=user-42')
+    const taskCells = await screen.findAllByText(/What plan is the customer on/i)
+    fireEvent.click(taskCells.find((el) => el.closest('tr'))!.closest('tr')!)
+    const button = await screen.findByRole('button', { name: /Replay this receipt/i })
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(screen.getByText(/Output differs/i)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/1 added · 0 removed/i)).toBeInTheDocument()
+  })
+
+  it('surfaces a 422 error inline instead of crashing', async () => {
+    mockFetchWithReplay({ replayFails: true })
+    renderPage('?subject_id=user-42')
+    const taskCells = await screen.findAllByText(/What plan is the customer on/i)
+    fireEvent.click(taskCells.find((el) => el.closest('tr'))!.closest('tr')!)
+    const button = await screen.findByRole('button', { name: /Replay this receipt/i })
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(screen.getByText(/bad yaml/i)).toBeInTheDocument()
+    })
+  })
+})

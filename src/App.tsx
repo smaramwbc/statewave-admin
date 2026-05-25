@@ -13,6 +13,7 @@ import { JobsPage } from './pages/JobsPage'
 import { WebhooksPage } from './pages/WebhooksPage'
 import { ReceiptsPage } from './pages/ReceiptsPage'
 import { PolicyPage } from './pages/PolicyPage'
+import { SuggestedLabelsPage } from './pages/SuggestedLabelsPage'
 import { DiagnosticsPage } from './pages/DiagnosticsPage'
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
                   <Route path="/webhooks" element={<ErrorBoundary level="page"><WebhooksPage /></ErrorBoundary>} />
                   <Route path="/receipts" element={<ErrorBoundary level="page"><ReceiptsPage /></ErrorBoundary>} />
                   <Route path="/policy" element={<ErrorBoundary level="page"><PolicyPage /></ErrorBoundary>} />
+                  <Route path="/suggested-labels" element={<ErrorBoundary level="page"><SuggestedLabelsPage /></ErrorBoundary>} />
                   <Route path="/diagnostics" element={<ErrorBoundary level="page"><DiagnosticsPage /></ErrorBoundary>} />
                 </Route>
               </Routes>
