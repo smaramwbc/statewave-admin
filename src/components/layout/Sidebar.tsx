@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Database, Cog, Receipt, Shield, Webhook, Stethoscope, X } from 'lucide-react'
+import { LayoutDashboard, Database, Cog, Receipt, Shield, Tag, Webhook, Stethoscope, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTheme } from '../../lib/theme'
 
@@ -17,6 +17,7 @@ const navItems: NavItem[] = [
   { to: '/webhooks', label: 'Webhooks', icon: Webhook },
   { to: '/receipts', label: 'Receipts', icon: Receipt },
   { to: '/policy', label: 'Policy', icon: Shield },
+  { to: '/suggested-labels', label: 'Suggested labels', icon: Tag },
   { to: '/diagnostics', label: 'Diagnostics', icon: Stethoscope },
 ]
 
