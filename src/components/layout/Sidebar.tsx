@@ -140,7 +140,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
   const footer = (
     <div className="p-3 border-t border-theme-border">
-      <p className="text-[10px] text-theme-muted text-center">Statewave Admin v0.8</p>
+      <p className="text-[10px] text-theme-muted text-center">Statewave Admin v0.9</p>
     </div>
   )
 

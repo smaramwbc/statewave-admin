@@ -564,18 +564,22 @@ All under `/admin/memory/*`, gated by the existing X-API-Key middleware:
 | `POST /admin/memory/import` | Ingest a previously decrypted payload |
 | `POST /admin/docs-pack/reseed` | **Deprecated alias** — backward-compatible shim for `/admin/memory/support/reseed`. Same body, same response, same vendor-neutral service; kept so older operator scripts keep working. No GitHub token required. |
 
-## Governance & audit (v0.8)
+## Governance & audit (v0.8 + v0.9)
 
-The admin surfaces the [state-assembly receipts](https://github.com/smaramwbc/statewave-docs/blob/main/receipts.md) and [sensitivity-labels / policy](https://github.com/smaramwbc/statewave-docs/blob/main/sensitivity-labels.md) layer added in server v0.8.
+The admin surfaces the [state-assembly receipts](https://github.com/smaramwbc/statewave-docs/blob/main/receipts.md) and [sensitivity-labels / policy](https://github.com/smaramwbc/statewave-docs/blob/main/sensitivity-labels.md) layer that landed in server v0.8, plus the v0.9 replay, auto-labeling, and residency surfaces.
 
 | Surface | What it does | Backend |
 |---|---|---|
-| **Receipts** (`/receipts`) | Cursor-paginated, newest-first listing of state-assembly receipts. Drill into any receipt to inspect the SHA-256 context hash, the selected entries (with supersession status), policy decisions (`filters_applied` / `filters_skipped`), and the caller identity that produced the bundle. | `/admin/receipts` |
-| **Policy** (`/policy`) | Upload a policy bundle YAML, view its parsed rules, and activate it against a specific tenant. The page shows the currently active bundle and its mode (`log_only` / `enforce`) per tenant. | `/admin/policy/*` |
-| **Tenant config** (on `/policy`) | Per-tenant form for `policy_mode`, `require_caller_identity`, and the active bundle hash. Uses optimistic concurrency (`expected_version`) so two operators editing the same tenant cannot silently overwrite each other. | `/admin/tenants/{id}/config` |
-| **Sensitivity labels** (Memory detail) | Edit `sensitivity_labels` on any memory directly from the Memory detail drawer on the Subjects page. The server normalizes (lowercase, trim, dedup). Memories with labels become subject to whatever policy bundle is active for the tenant. | `/admin/memories/{id}/labels` |
+| **Receipts** (`/receipts`) | Cursor-paginated, newest-first listing of state-assembly receipts. Drill into any receipt to inspect the SHA-256 context hash, the selected entries (with supersession status), policy decisions (`filters_applied` / `filters_skipped`), the caller identity, and (v0.9) the embedded policy snapshot. | `/admin/receipts` |
+| **Receipt replay** (v0.9, on Receipt detail) | "Replay this receipt" button on any v0.9+ receipt re-runs the original retrieval against current memories using the original policy bundle from the snapshot, then renders a structural diff envelope inline (added/removed entries, filter changes, context-hash diff). Pre-v0.9 receipts show an explanatory line instead of the button. | `/admin/receipts/{id}/replay` |
+| **Suggested labels** (v0.9, `/suggested-labels`) | Review queue for the v0.9 auto-labeling pipeline — every memory carrying at least one detector-derived `suggested_label`. Per-row checkboxes + a Promote button move the selected subset into authoritative `sensitivity_labels`. Strictly review-driven: the server refuses ad-hoc label writes via this surface (use Memory detail for those). Each promotion is audit-trailed on `memory.metadata.label_promotions`. | `/admin/memories/with-suggested-labels`, `/admin/memories/{id}/promote-labels` |
+| **Policy** (`/policy`) | Upload a policy bundle YAML, view its parsed rules, and activate it against a specific tenant. Shows the currently active bundle and its mode (`log_only` / `enforce`) per tenant. | `/admin/policy/*` |
+| **Tenant config** (on `/policy`) | Per-tenant form for `policy_mode`, `require_caller_identity`, the active bundle hash, and (v0.9) the residency `region` pin. Uses optimistic concurrency (`expected_version`) so two operators editing the same tenant cannot silently overwrite each other. | `/admin/tenants/{id}/config` |
+| **Sensitivity labels** (Memory detail) | Edit `sensitivity_labels` on any memory directly from the Memory detail drawer on the Subjects page. The server normalizes (lowercase, trim, dedup). | `/admin/memories/{id}/labels` |
 
-Receipts are the system's audit trail; the policy engine is what they're an audit of. In the default `log_only` mode every retrieval is recorded with full policy decisions but nothing is filtered — operators see exactly what a future `enforce` rollout would block before flipping the switch.
+Receipts are the system's audit trail; the policy engine is what they're an audit of. v0.9 closes the audit loop end-to-end: signed receipts (#157) + embedded policy snapshot (#159) + replay-with-diff (#159) + region stamp (#161) + auto-labeling review (#158, #160) mean an auditor can answer *where* the decision was made, *with what rules*, *was the body tampered with*, *would current code make the same call*.
+
+In the default `log_only` mode every retrieval is recorded with full policy decisions but nothing is filtered — operators see exactly what a future `enforce` rollout would block before flipping the switch.
 
 ## Deployment
 
