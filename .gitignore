@@ -4,4 +4,4 @@ dist-server/
 .env
 .env.local
 .vercel
-AGENTS.md
+AGENTS_INTERNAL.md
