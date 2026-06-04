@@ -5,3 +5,4 @@ dist-server/
 .env.local
 .vercel
 AGENTS_INTERNAL.md
+.DS_Store
