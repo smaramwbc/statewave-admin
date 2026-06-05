@@ -29,7 +29,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/statewave-admin-server"],
+    "externalBin": [
+      "binaries/statewave-admin-server"
+    ],
     "resources": {
       "../../../dist": "dist"
     },
@@ -42,6 +44,22 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "Statewave admin desktop client",
-    "longDescription": "Cross-platform desktop wrapper for the Statewave admin web UI, sharing credentials with the statewave-admin CLI."
+    "longDescription": "Cross-platform desktop wrapper for the Statewave admin web UI, sharing credentials with the statewave-admin CLI.",
+    "macOS": {
+      "dmg": {
+        "windowSize": {
+          "width": 540,
+          "height": 380
+        },
+        "appPosition": {
+          "x": 140,
+          "y": 180
+        },
+        "applicationFolderPosition": {
+          "x": 400,
+          "y": 180
+        }
+      }
+    }
   }
 }
