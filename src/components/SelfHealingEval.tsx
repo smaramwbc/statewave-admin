@@ -409,6 +409,17 @@ export function SelfHealingEval() {
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
+  // Hide the entire card when Self-Healing Eval isn't configured on
+  // this deployment. The feature requires an LLM judge, a demo agent
+  // endpoint, an explicit enable flag, and a docs-grounded prompt
+  // shape — a typical operator running their own data won't have any
+  // of those. Rendering a "5 env vars are missing" wall as the
+  // primary state is worse than not rendering the card at all.
+  // The status fetch hasn't completed yet → render nothing rather
+  // than flash the card.
+  if (!status && !statusError) return null
+  if (!available) return null
+
   const overallChip = report ? statusToChip(report.status) : 'unknown'
   const overallLabel = report
     ? statusToLabel(report.status)
