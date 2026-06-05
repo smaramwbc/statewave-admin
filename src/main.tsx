@@ -15,13 +15,23 @@ import {
 async function bootstrap() {
   const root = createRoot(document.getElementById('root')!)
 
-  // In Tauri, the React bundle boots once from `tauri://localhost`
-  // (bootstrap phase) and again from `http://127.0.0.1:NNNN` after the
-  // shell navigates to the spawned sidecar (normal phase). The wizard /
-  // sidecar plumbing only runs in the bootstrap phase. Outside Tauri
-  // (web deploy, `npm run dev`) we go straight to the app.
+  // In Tauri prod, the React bundle boots once from the OS-specific
+  // Tauri asset URL (bootstrap phase) and again from
+  // `http://127.0.0.1:NNNN` after the shell navigates to the spawned
+  // sidecar (normal phase). The wizard / sidecar plumbing only runs in
+  // the bootstrap phase. Outside Tauri (web deploy, `npm run dev`) we
+  // go straight to the app.
   if (isTauri() && isBootstrapPhase()) {
-    const status = await getBackendStatus()
+    let status
+    try {
+      status = await getBackendStatus()
+    } catch (err) {
+      // If the invoke handler fails, treat as "not configured" and let
+      // the wizard render so the user has a path forward instead of a
+      // blank window.
+      console.error('get_backend_status failed', err)
+      status = { configured: false, statewave_api_url: null, sidecar_url: null }
+    }
     if (!status.configured) {
       root.render(
         <StrictMode>

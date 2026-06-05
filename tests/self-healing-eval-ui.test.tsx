@@ -53,7 +53,12 @@ afterEach(() => {
 })
 
 describe('SelfHealingEval card — unavailable state', () => {
-  it('renders the LLM-config message and disables the run button', async () => {
+  it('hides the card entirely when the feature is not configured', async () => {
+    // As of #2026-06-05 the card is hidden when availability.available
+    // is false rather than rendered as a "this feature is unavailable,
+    // here are five env vars you forgot" wall. Operators who never
+    // configure the eval should not see a permanently-broken-looking
+    // card on /diagnostics.
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       if (isSmokeStatusUrl(url)) return Promise.resolve(jsonRes(SMOKE_STATUS_DONE))
       if (isEvalStatusUrl(url)) {
@@ -97,11 +102,14 @@ describe('SelfHealingEval card — unavailable state', () => {
       )
     })
 
+    // SystemSmokeCheck still mounts; SelfHealingEval does not.
     await waitFor(() => {
-      expect(screen.getByText(/Self-Healing Eval requires an LLM evaluator/i)).toBeInTheDocument()
+      expect(screen.getByText('System smoke check')).toBeInTheDocument()
     })
-    const button = screen.getByRole('button', { name: /run self-healing eval/i })
-    expect(button).toBeDisabled()
+    expect(screen.queryByText('Self-Healing Eval')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/Self-Healing Eval requires an LLM evaluator/i),
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -824,11 +832,14 @@ describe('Diagnostics page — composition', () => {
         return Promise.resolve(
           jsonRes({
             availability: {
-              available: false,
-              enabled: false,
-              llm_configured: false,
-              demo_agent_configured: false,
-              webhook_configured: false,
+              // Eval must be available for the card to mount — the
+              // unavailable-state test above pins the hide-when-disabled
+              // behaviour; this composition test pins the happy path.
+              available: true,
+              enabled: true,
+              llm_configured: true,
+              demo_agent_configured: true,
+              webhook_configured: true,
               reasons: [],
             },
             is_running: false,
@@ -836,10 +847,10 @@ describe('Diagnostics page — composition', () => {
             latest: null,
             progress: null,
             config_summary: {
-              statewave_api_url_set: false,
-              llm_provider: null,
-              llm_model: null,
-              demo_agent_url_set: false,
+              statewave_api_url_set: true,
+              llm_provider: 'openai',
+              llm_model: 'gpt-4o-mini',
+              demo_agent_url_set: true,
               webhook_url_set: false,
               storage_path_set: false,
             },

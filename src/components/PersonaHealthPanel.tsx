@@ -48,6 +48,21 @@ export function PersonaHealthPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Hide the card entirely when NO demo packs are configured on this
+  // deployment. The probes target bundled `demo-*` subjects — if the
+  // operator hasn't imported any, every row would render as
+  // "NOT CONFIGURED", which is noise rather than signal. We keep the
+  // panel visible on real errors so the operator still sees the
+  // diagnostic, and we keep it visible if any pack is configured (even
+  // if some of the others aren't) so partial-import states are still
+  // observable.
+  const personas = Array.isArray(report?.personas) ? report.personas : []
+  const allNotConfigured =
+    !!report &&
+    personas.length > 0 &&
+    personas.every((p) => p.status === 'not_configured')
+  if (!loading && !error && allNotConfigured) return null
+
   return (
     <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-5">
       <div className="flex items-start justify-between gap-3">

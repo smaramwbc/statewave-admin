@@ -75,14 +75,25 @@ export async function ensureSidecar(): Promise<string> {
 }
 
 /**
- * `true` while the React bundle is still on Tauri's `tauri://localhost`
- * custom protocol — we haven't been navigated to the sidecar yet, so
- * this is the bootstrap / wizard phase. Once `ensureSidecar()` runs and
- * the shell calls `webview.navigate`, the document reloads same-origin
- * with the sidecar and `isBootstrapPhase()` returns `false`.
+ * `true` while the React bundle is still on Tauri's bundled
+ * frontendDist (booted from the OS-specific Tauri asset URL — varies by
+ * platform + version) and has NOT yet been navigated to the sidecar.
+ *
+ * Detection: in production, the only thing we're sure of is that the
+ * sidecar serves the app on `http://127.0.0.1:<port>`. Anything else
+ * (`tauri://localhost`, `http://tauri.localhost`, etc.) is the
+ * bootstrap phase. We additionally gate on `import.meta.env.PROD` so
+ * Vite dev mode (`http://localhost:5173`) doesn't get falsely flagged
+ * as bootstrap — in dev the React app runs normally against Vite's
+ * `/api/*` middleware and no sidecar is involved.
+ *
+ * Earlier versions of this function checked `location.protocol ===
+ * 'tauri:'` directly. That broke on Windows + Linux (where the asset
+ * URL is `http://tauri.localhost`, protocol `http:`) and silently
+ * dropped users into the regular `<App />` with no env-var wizard.
  */
 export function isBootstrapPhase(): boolean {
   if (typeof window === 'undefined') return false
-  const proto = window.location.protocol
-  return proto === 'tauri:' || proto === 'tauri-localhost:'
+  if (!import.meta.env.PROD) return false
+  return window.location.hostname !== '127.0.0.1'
 }

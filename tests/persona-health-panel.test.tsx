@@ -150,12 +150,28 @@ describe('PersonaHealthPanel', () => {
   })
 
   it('reads "not_configured" status as its own label, not as a fail', async () => {
+    // Mixed state: one configured persona alongside one not_configured.
+    // The panel hides itself only when ALL personas are not_configured
+    // (since #2026-06-05's gating change) — for a partial-import state
+    // we still want to see the row + its NOT CONFIGURED badge so the
+    // operator knows which pack is missing.
     vi.restoreAllMocks()
     vi.spyOn(globalThis, 'fetch').mockImplementation((async () =>
       new Response(
         JSON.stringify({
           fetched_at: '2026-05-06T17:00:00Z',
           personas: [
+            {
+              pack_id: 'demo-coding-assistant',
+              display_name: 'Coding',
+              version: '2.0',
+              episode_count: 1,
+              memory_count: 1,
+              embedding_coverage: 1,
+              probes: [],
+              status: 'pass',
+              error: null,
+            },
             {
               pack_id: 'demo-support-agent',
               display_name: 'Support',
@@ -177,5 +193,34 @@ describe('PersonaHealthPanel', () => {
     })
     // Should NOT also show a FAIL badge for the same persona.
     expect(screen.queryByText('FAIL')).not.toBeInTheDocument()
+  })
+
+  it('hides the panel entirely when ALL packs are not_configured', async () => {
+    vi.restoreAllMocks()
+    vi.spyOn(globalThis, 'fetch').mockImplementation((async () =>
+      new Response(
+        JSON.stringify({
+          fetched_at: '2026-05-06T17:00:00Z',
+          personas: [
+            {
+              pack_id: 'demo-support-agent',
+              display_name: 'Support',
+              version: null,
+              episode_count: null,
+              memory_count: null,
+              embedding_coverage: null,
+              probes: [],
+              status: 'not_configured',
+              error: 'STATEWAVE_API_URL is not configured',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch)
+    const { container } = render(<PersonaHealthPanel />)
+    // Give the deferred microtask a chance to land + resolve.
+    await waitFor(() => {
+      expect(container.querySelector('h2')).toBeNull()
+    })
   })
 })
