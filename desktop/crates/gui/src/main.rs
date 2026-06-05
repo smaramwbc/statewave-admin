@@ -59,10 +59,12 @@ fn save_backend_credentials(input: SaveBackendInput) -> Result<(), String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("URL must start with http:// or https://".into());
     }
+    // API key is optional — many local / self-hosted Statewave
+    // deployments run with no API-key auth (the user's docker compose
+    // uses STATEWAVE_API_KEY=""). Pass whatever the user typed (empty
+    // included) straight through to the sidecar; the backend decides
+    // whether auth is required.
     let key = input.statewave_api_key.trim().to_string();
-    if key.is_empty() {
-        return Err("API key cannot be empty".into());
-    }
     BackendCredentials {
         statewave_api_url: url,
         statewave_api_key: key,

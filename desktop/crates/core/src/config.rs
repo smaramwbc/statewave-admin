@@ -158,14 +158,16 @@ pub struct BackendCredentials {
 }
 
 impl BackendCredentials {
+    /// Load saved credentials. The URL is required; the API key is
+    /// optional and defaults to an empty string when not set (many
+    /// local / self-hosted Statewave deployments run without API-key
+    /// auth — the backend decides).
     pub fn load() -> Result<Self> {
         let cfg = Config::load().unwrap_or_default();
         let url = cfg
             .statewave_api_url
             .ok_or_else(|| Error::Other("backend URL not configured".into()))?;
-        let key = cfg
-            .statewave_api_key
-            .ok_or_else(|| Error::Other("backend API key not configured".into()))?;
+        let key = cfg.statewave_api_key.unwrap_or_default();
         Ok(Self {
             statewave_api_url: url,
             statewave_api_key: key,
@@ -188,6 +190,9 @@ impl BackendCredentials {
         Ok(())
     }
 
+    /// "Configured" means we know which backend to talk to — i.e. the
+    /// URL is set. The API key is optional (see `load`); an empty
+    /// string is a valid value for deployments without auth.
     pub fn is_configured() -> bool {
         let cfg = match Config::load() {
             Ok(c) => c,
@@ -196,9 +201,5 @@ impl BackendCredentials {
         cfg.statewave_api_url
             .as_deref()
             .is_some_and(|s| !s.is_empty())
-            && cfg
-                .statewave_api_key
-                .as_deref()
-                .is_some_and(|s| !s.is_empty())
     }
 }

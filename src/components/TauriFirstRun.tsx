@@ -37,9 +37,10 @@ export function TauriFirstRun({
       if (!/^https?:\/\//i.test(trimmed)) {
         throw new Error('Backend URL must start with http:// or https://')
       }
-      if (!apiKey.trim()) {
-        throw new Error('API key is required')
-      }
+      // API key is optional — many local / self-hosted Statewave
+      // deployments run without one. The sidecar passes the trimmed
+      // value (possibly empty) through to STATEWAVE_API_KEY; the
+      // backend decides whether auth is required.
       await saveBackendCredentials(trimmed, apiKey.trim())
       const sidecarUrl = await ensureSidecar()
       // The Rust shell already navigated the webview; this onConnected
@@ -106,14 +107,16 @@ export function TauriFirstRun({
 
             <label className="block">
               <span className="text-[11px] uppercase tracking-wider text-theme-muted font-medium">
-                Statewave API key
+                Statewave API key{' '}
+                <span className="text-theme-muted/70 normal-case tracking-normal">
+                  · optional
+                </span>
               </span>
               <input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-…"
-                required
+                placeholder="leave blank if your backend has no API-key auth"
                 className="mt-1 w-full rounded-lg border border-theme-border bg-[var(--theme-surface-1)] px-3 py-2 text-sm text-theme-primary font-mono focus:outline-none focus:ring-2 focus:ring-accent/40"
               />
             </label>

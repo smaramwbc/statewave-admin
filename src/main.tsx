@@ -5,6 +5,7 @@ import './index.css'
 import App from './App'
 import { TauriFirstRun, TauriStartingSidecar } from './components/TauriFirstRun'
 import { applyPendingUpdate, registerServiceWorker } from './lib/sw-register'
+import { ThemeProvider } from './lib/theme'
 import {
   ensureSidecar,
   getBackendStatus,
@@ -33,9 +34,14 @@ async function bootstrap() {
       status = { configured: false, statewave_api_url: null, sidecar_url: null }
     }
     if (!status.configured) {
+      // ThemeProvider is required by the wizard's `useTheme()` call —
+      // the regular `<App />` mounts it, but the wizard is rendered
+      // before App, so we wrap it explicitly here.
       root.render(
         <StrictMode>
-          <TauriFirstRun />
+          <ThemeProvider>
+            <TauriFirstRun />
+          </ThemeProvider>
         </StrictMode>,
       )
       return
@@ -43,7 +49,9 @@ async function bootstrap() {
     // Creds present — starting the sidecar will navigate the window.
     root.render(
       <StrictMode>
-        <TauriStartingSidecar />
+        <ThemeProvider>
+          <TauriStartingSidecar />
+        </ThemeProvider>
       </StrictMode>,
     )
     try {
