@@ -7,8 +7,14 @@
  * After save: we ask the Rust shell to spawn the sidecar and navigate
  * the main window at it. The window reload picks up the saved creds
  * automatically and lands the user on the dashboard.
+ *
+ * Styling mirrors `LoginPage.tsx` — same logo block, same card
+ * chrome, same theme tokens — so the desktop first-run feels like a
+ * member of the same console rather than a stray pre-app screen.
  */
 import { FormEvent, useState } from 'react'
+import { Button } from './ui'
+import { useTheme } from '../lib/theme'
 import { ensureSidecar, saveBackendCredentials } from '../lib/tauri-bridge'
 
 export function TauriFirstRun({
@@ -16,6 +22,7 @@ export function TauriFirstRun({
 }: {
   onConnected?: (sidecarUrl: string) => void
 }) {
+  const { resolvedTheme } = useTheme()
   const [url, setUrl] = useState('http://localhost:8100')
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState(false)
@@ -48,106 +55,114 @@ export function TauriFirstRun({
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '2rem',
-      }}
-    >
-      <form
-        onSubmit={onSubmit}
-        style={{
-          maxWidth: '460px',
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1rem',
-        }}
-      >
-        <h1 style={{ margin: 0, fontSize: '1.25rem' }}>Statewave Admin</h1>
-        <p style={{ margin: 0, opacity: 0.75 }}>
-          Connect this desktop app to your Statewave backend. Both fields are
-          stored in your OS keychain and used by the embedded admin server.
-        </p>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-          <span>Statewave API URL</span>
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="http://localhost:8100"
-            required
-            autoFocus
-            style={{
-              padding: '0.5rem 0.75rem',
-              fontSize: '1rem',
-              border: '1px solid currentColor',
-              borderRadius: '0.375rem',
-              background: 'transparent',
-              color: 'inherit',
-            }}
+    <div className="min-h-screen bg-[var(--theme-surface-0)] flex items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <img
+            src={
+              resolvedTheme === 'dark'
+                ? '/statewave_icon_dark.png'
+                : '/statewave_icon_light.png'
+            }
+            alt="Statewave"
+            className="h-12 w-12 mb-3"
           />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-          <span>Statewave API key</span>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-…"
-            required
-            style={{
-              padding: '0.5rem 0.75rem',
-              fontSize: '1rem',
-              border: '1px solid currentColor',
-              borderRadius: '0.375rem',
-              background: 'transparent',
-              color: 'inherit',
-              fontFamily: 'monospace',
-            }}
-          />
-        </label>
-        {error ? (
-          <div role="alert" style={{ color: 'crimson', fontSize: '0.875rem' }}>
-            {error}
+          <div className="text-sm font-semibold text-theme-primary tracking-tight">
+            Statewave
           </div>
-        ) : null}
-        <button
-          type="submit"
-          disabled={busy}
-          style={{
-            padding: '0.625rem 1rem',
-            fontSize: '1rem',
-            border: '1px solid currentColor',
-            borderRadius: '0.375rem',
-            cursor: busy ? 'progress' : 'pointer',
-            background: 'transparent',
-            color: 'inherit',
-          }}
-        >
-          {busy ? 'Connecting…' : 'Connect'}
-        </button>
-      </form>
+          <div className="text-[11px] text-theme-muted uppercase tracking-wider mt-1">
+            Admin Console
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-6">
+          <h1 className="text-base font-semibold text-theme-primary mb-1">
+            Connect to your backend
+          </h1>
+          <p className="text-xs text-theme-muted mb-5">
+            Both fields are stored in your per-user config directory and used
+            by the embedded admin server. You can change them later from the
+            menu bar via{' '}
+            <span className="font-medium text-theme-primary">
+              Statewave Admin → Disconnect Backend…
+            </span>
+          </p>
+
+          <form onSubmit={onSubmit} className="space-y-3">
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-wider text-theme-muted font-medium">
+                Statewave API URL
+              </span>
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="http://localhost:8100"
+                required
+                autoFocus
+                className="mt-1 w-full rounded-lg border border-theme-border bg-[var(--theme-surface-1)] px-3 py-2 text-sm text-theme-primary focus:outline-none focus:ring-2 focus:ring-accent/40"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-wider text-theme-muted font-medium">
+                Statewave API key
+              </span>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-…"
+                required
+                className="mt-1 w-full rounded-lg border border-theme-border bg-[var(--theme-surface-1)] px-3 py-2 text-sm text-theme-primary font-mono focus:outline-none focus:ring-2 focus:ring-accent/40"
+              />
+            </label>
+
+            {error ? (
+              <div role="alert" className="text-xs text-red-600 dark:text-red-400">
+                {error}
+              </div>
+            ) : null}
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={busy}
+              loading={busy}
+              className="w-full"
+            >
+              {busy ? 'Connecting…' : 'Connect'}
+            </Button>
+          </form>
+        </div>
+
+        <p className="text-[10px] text-theme-muted text-center mt-4">
+          The embedded admin server runs locally on{' '}
+          <code className="font-mono">127.0.0.1</code> and never exposes a port
+          to the network.
+        </p>
+      </div>
     </div>
   )
 }
 
 export function TauriStartingSidecar() {
+  const { resolvedTheme } = useTheme()
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '2rem',
-        opacity: 0.75,
-      }}
-    >
-      Starting Statewave Admin…
+    <div className="min-h-screen bg-[var(--theme-surface-0)] flex items-center justify-center px-6">
+      <div className="flex flex-col items-center text-center">
+        <img
+          src={
+            resolvedTheme === 'dark'
+              ? '/statewave_icon_dark.png'
+              : '/statewave_icon_light.png'
+          }
+          alt="Statewave"
+          className="h-12 w-12 mb-3 animate-pulse"
+        />
+        <p className="text-sm text-theme-muted">Starting Statewave Admin…</p>
+      </div>
     </div>
   )
 }
