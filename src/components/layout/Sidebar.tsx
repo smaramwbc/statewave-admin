@@ -138,9 +138,19 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
     </ul>
   )
 
+  // `__ADMIN_VERSION__` is injected by Vite `define` for app builds; guard it
+  // so test (vitest) / non-Vite environments that don't apply the define still
+  // render rather than throw on an undefined global.
+  const adminVersion = (
+    typeof __ADMIN_VERSION__ !== 'undefined' ? __ADMIN_VERSION__ : '0.0.0'
+  )
+    .split('.')
+    .slice(0, 2)
+    .join('.')
+
   const footer = (
     <div className="p-3 border-t border-theme-border">
-      <p className="text-[10px] text-theme-muted text-center">Statewave Admin v0.9</p>
+      <p className="text-[10px] text-theme-muted text-center">Statewave Admin v{adminVersion}</p>
     </div>
   )
 
