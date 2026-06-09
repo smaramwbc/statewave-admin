@@ -15,7 +15,11 @@
 import { FormEvent, useState } from 'react'
 import { Button } from './ui'
 import { useTheme } from '../lib/theme'
-import { ensureSidecar, saveBackendCredentials } from '../lib/tauri-bridge'
+import {
+  ensureSidecar,
+  saveBackendCredentials,
+  validateBackend,
+} from '../lib/tauri-bridge'
 
 export function TauriFirstRun({
   onConnected,
@@ -37,6 +41,11 @@ export function TauriFirstRun({
       if (!/^https?:\/\//i.test(trimmed)) {
         throw new Error('Backend URL must start with http:// or https://')
       }
+      // Probe the backend BEFORE saving so we catch wrong-URL /
+      // unreachable-host / wrong-API-key cases inline, instead of
+      // saving bad creds, spawning the sidecar, and surfacing the
+      // error post-facto on the dashboard.
+      await validateBackend(trimmed, apiKey.trim())
       // API key is optional — many local / self-hosted Statewave
       // deployments run without one. The sidecar passes the trimmed
       // value (possibly empty) through to STATEWAVE_API_KEY; the

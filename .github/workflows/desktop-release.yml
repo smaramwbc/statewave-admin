@@ -128,6 +128,90 @@ jobs:
           prerelease: false
           args: --target ${{ matrix.rust_target }}
 
+      # ─────────────────────────────────────────────────────────────
+      # Post-build artifact smoke tests
+      #
+      # Boots each built bundle for a few seconds and checks the process
+      # stays alive — catches "ships but crashes on launch" regressions
+      # (e.g. missing WebView2 on Windows, missing GLib on Linux, a
+      # broken sidecar path on macOS) that the build step itself can't
+      # detect. The release stays in draft when these fail so a broken
+      # set never becomes "latest".
+      # ─────────────────────────────────────────────────────────────
+
+      - name: Smoke-test built bundle (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          APP="$GITHUB_WORKSPACE/desktop/target/${{ matrix.rust_target }}/release/bundle/macos/Statewave Admin.app"
+          [ -d "$APP" ] || { echo "::error::missing $APP" ; exit 1 ; }
+          "$APP/Contents/MacOS/statewave-admin-gui" > /tmp/swa-smoke.log 2>&1 &
+          PID=$!
+          sleep 8
+          if kill -0 $PID 2>/dev/null; then
+            echo "✓ GUI process alive after 8s (pid=$PID)"
+            kill $PID || true
+          else
+            echo "::error::GUI process died within 8s"
+            cat /tmp/swa-smoke.log
+            exit 1
+          fi
+          CLI="$GITHUB_WORKSPACE/desktop/target/${{ matrix.rust_target }}/release/statewave-admin"
+          "$CLI" --version
+          "$CLI" --help > /dev/null && echo "✓ CLI --help runs"
+
+      - name: Smoke-test built bundle (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        shell: bash
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb
+          APPIMAGE=$(ls "$GITHUB_WORKSPACE"/desktop/target/${{ matrix.rust_target }}/release/bundle/appimage/*.AppImage | head -1)
+          [ -n "$APPIMAGE" ] || { echo "::error::no AppImage produced" ; exit 1 ; }
+          chmod +x "$APPIMAGE"
+          xvfb-run -a "$APPIMAGE" --appimage-extract-and-run > /tmp/swa-smoke.log 2>&1 &
+          PID=$!
+          sleep 8
+          if kill -0 $PID 2>/dev/null; then
+            echo "✓ GUI process alive after 8s (pid=$PID)"
+            kill $PID || true
+          else
+            echo "::error::GUI process died within 8s"
+            cat /tmp/swa-smoke.log
+            exit 1
+          fi
+          CLI="$GITHUB_WORKSPACE/desktop/target/${{ matrix.rust_target }}/release/statewave-admin"
+          "$CLI" --version
+          "$CLI" --help > /dev/null && echo "✓ CLI --help runs"
+
+      - name: Smoke-test built bundle (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Recurse -Path "$env:GITHUB_WORKSPACE\desktop\target\${{ matrix.rust_target }}\release\bundle\msi" -Filter *.msi | Select-Object -First 1
+          if (-not $msi) { Write-Error "::error::no MSI produced"; exit 1 }
+          Write-Host "installing $($msi.FullName)"
+          $p = Start-Process msiexec.exe -ArgumentList "/i `"$($msi.FullName)`" /quiet /norestart" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "::error::msiexec exit $($p.ExitCode)"; exit 1 }
+          $exe = "${env:ProgramFiles}\Statewave Admin\statewave-admin-gui.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "::error::installed exe not found at $exe"
+            Get-ChildItem "${env:ProgramFiles}\Statewave Admin" -Recurse | Out-Host
+            exit 1
+          }
+          $proc = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 8
+          if (-not $proc.HasExited) {
+            Write-Host "✓ GUI process alive after 8s (pid=$($proc.Id))"
+            Stop-Process -Id $proc.Id -Force
+          } else {
+            Write-Error "::error::GUI process exited with code $($proc.ExitCode) within 8s"
+            exit 1
+          }
+          $cli = "$env:GITHUB_WORKSPACE\desktop\target\${{ matrix.rust_target }}\release\statewave-admin.exe"
+          & $cli --version
+          & $cli --help | Out-Null
+          if ($LASTEXITCODE -eq 0) { Write-Host "✓ CLI --help runs" } else { exit 1 }
+
       # ── Attach the standalone CLI binary to the same draft release so
       #    users get every artifact (GUI + CLI) in one place. The
       #    `cli_suffix` per matrix entry gives the binary a platform name
