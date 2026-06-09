@@ -78,6 +78,42 @@ fn clear_backend_credentials() -> Result<(), String> {
     BackendCredentials::clear().map_err(stringify)
 }
 
+/// Probe the backend before saving credentials.
+///
+/// Hits `<url>/readyz` with a 5-second timeout. If the API key is
+/// non-empty it is sent as `X-API-Key`, mirroring how the sidecar will
+/// call upstream. Returns Ok on 2xx; otherwise a human-readable error
+/// the wizard surfaces inline. Catches the "wrong URL / unreachable
+/// backend" case before we waste a sidecar-spawn cycle on it.
+#[tauri::command]
+async fn validate_backend(url: String, api_key: String) -> Result<(), String> {
+    let url = url.trim().trim_end_matches('/').to_string();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("URL must start with http:// or https://".into());
+    }
+    let probe = format!("{url}/readyz");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(stringify)?;
+    let mut req = client.get(&probe);
+    let key = api_key.trim();
+    if !key.is_empty() {
+        req = req.header("X-API-Key", key);
+    }
+    let res = req
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach {probe}: {e}"))?;
+    if !res.status().is_success() {
+        return Err(format!(
+            "{probe} returned {} — is this a Statewave API URL?",
+            res.status()
+        ));
+    }
+    Ok(())
+}
+
 /// Spawn the sidecar and navigate the main webview at it. Idempotent —
 /// returns the existing URL on subsequent calls. Called by the React
 /// first-run wizard after credentials are saved.
@@ -129,6 +165,7 @@ fn main() {
             get_backend_status,
             save_backend_credentials,
             clear_backend_credentials,
+            validate_backend,
             ensure_sidecar,
         ])
         .setup(|app| {
@@ -195,12 +232,12 @@ fn main() {
                 if let Err(e) = BackendCredentials::clear() {
                     log::warn!("clear_backend_credentials: {e}");
                 }
-                // Reload from the bundled `tauri://localhost` so the
-                // wizard re-renders. We don't want to navigate away
-                // from a stale sidecar URL because we just killed it.
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.eval("window.location.replace('tauri://localhost/')");
-                }
+                // Restart the app so the bootstrap path re-runs cleanly.
+                // Earlier we tried `window.location.replace('tauri://localhost/')`
+                // but that URL is platform-specific — macOS uses `tauri:`,
+                // Windows + Linux use `http://tauri.localhost`. A restart
+                // works on all three.
+                app.restart();
             }
         })
         .build(tauri::generate_context!())

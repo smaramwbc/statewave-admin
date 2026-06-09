@@ -64,6 +64,17 @@ export async function saveBackendCredentials(
   })
 }
 
+/**
+ * Probe the backend before committing credentials. Hits `<url>/readyz`
+ * with a 5-second timeout, sends the API key as `X-API-Key` if
+ * provided. Throws on any non-2xx or unreachable host so the wizard
+ * can surface the error inline.
+ */
+export async function validateBackend(url: string, key: string): Promise<void> {
+  const invoke = await getInvoke()
+  await invoke<void>('validate_backend', { url, apiKey: key })
+}
+
 export async function clearBackendCredentials(): Promise<void> {
   const invoke = await getInvoke()
   await invoke<void>('clear_backend_credentials')
