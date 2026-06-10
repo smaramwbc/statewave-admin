@@ -139,9 +139,9 @@ The desktop is locally-bound (sidecar listens on `127.0.0.1` only). Adding a pas
 
 | OS              | GUI bundle                                | CLI binary attached to the release |
 |-----------------|-------------------------------------------|------------------------------------|
-| `windows-latest`| NSIS / MSI installer (`Statewave Admin`)  | `statewave-admin-windows-latest.exe` |
-| `macos-latest`  | universal `.dmg`                          | `statewave-admin-macos-latest`     |
-| `ubuntu-latest` | `.deb` + `.AppImage`                      | `statewave-admin-ubuntu-latest`    |
+| `windows-latest`| NSIS / MSI installer (`Statewave Admin`)  | `statewave-admin-cli-windows-x64.exe` |
+| `macos-latest`  | `.dmg` (Apple Silicon; Intel Macs run it via Rosetta 2) | `statewave-admin-cli-macos-arm64`     |
+| `ubuntu-latest` | `.deb` + `.AppImage`                      | `statewave-admin-cli-linux-x64`    |
 
 Code signing is opt-in via repo secrets (`APPLE_CERTIFICATE`, `APPLE_ID`, etc.) — when absent the workflow still completes and produces unsigned bundles.
 

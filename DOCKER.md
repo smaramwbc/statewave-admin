@@ -12,9 +12,14 @@ Multi-arch (`linux/amd64`, `linux/arm64`), built with provenance + SBOM and sign
 
 ```sh
 docker run --rm -p 8080:8080 \
-  -e STATEWAVE_API_BASE_URL=http://host.docker.internal:8100 \
+  -e STATEWAVE_API_URL=http://host.docker.internal:8100 \
+  -e ADMIN_AUTH_DISABLED=true \
   statewavedev/statewave-admin:latest
 ```
+
+> `ADMIN_AUTH_DISABLED=true` is for local trials only. For a deployed admin,
+> drop it and set `ADMIN_PASSWORD` + `ADMIN_SESSION_SECRET` instead — e.g.
+> `-e ADMIN_PASSWORD=... -e ADMIN_SESSION_SECRET=$(openssl rand -hex 32)`.
 
 Then open <http://localhost:8080>.
 
@@ -30,7 +35,8 @@ services:
     image: statewavedev/statewave-admin:latest
     ports: ["8080:8080"]
     environment:
-      STATEWAVE_API_BASE_URL: http://api:8100
+      STATEWAVE_API_URL: http://api:8100
+      ADMIN_AUTH_DISABLED: "true"   # local trial only; use ADMIN_PASSWORD + ADMIN_SESSION_SECRET when deployed
     depends_on: [api]
 ```
 
