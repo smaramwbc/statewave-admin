@@ -203,7 +203,7 @@ All variables are **server-side only**. None may use a `VITE_*` prefix — those
 | `ADMIN_DEMO_AGENT_API_KEY` | _(none)_ | Optional bearer token sent to the demo agent |
 | `ADMIN_DEMO_AGENT_BODY_FORMAT` | `default` | `default` (eval-native shape) or `statewave-web` (translates to `{messages, mode, persona}` so the existing `/api/widget-chat` endpoint in [statewave-web](https://github.com/smaramwbc/statewave-web) can be used as the demo agent without changes) |
 | `ADMIN_DEMO_AGENT_PERSONA` | `statewave-support` | Persona id used only when `ADMIN_DEMO_AGENT_BODY_FORMAT=statewave-web`. Defaults to the docs-grounded persona. |
-| `ADMIN_DEMO_WEBHOOK_URL` | _(none)_ | **Reserved / informational in this MVP.** Webhook delivery validation reuses the existing Statewave smoke-check path — the eval observes whatever destination `STATEWAVE_WEBHOOK_URL` is set to on the Statewave server. |
+| `ADMIN_DEMO_WEBHOOK_URL` | _(none)_ | Optional. Self-healing-eval only — lets the admin's eval validate end-to-end webhook delivery against a test endpoint. Not a separate webhook integration; the Statewave server's `STATEWAVE_WEBHOOK_URL` is the real webhook config. Webhook delivery validation reuses the existing Statewave smoke-check path — the eval observes whatever destination `STATEWAVE_WEBHOOK_URL` is set to on the Statewave server. |
 | `ADMIN_EVAL_STORAGE_PATH` | _(none)_ | Optional directory for persisting eval reports across restarts |
 | `PORT` | `8080` | Standalone Node server listen port |
 | `HOST` | `0.0.0.0` | Standalone Node server bind host |
@@ -409,11 +409,9 @@ All four sit behind the same auth gate as `/api/proxy`:
 | `GET  /api/self-healing-eval/report/latest` | Most recent finished report (`?format=markdown` for the rendered version) |
 | `GET  /api/self-healing-eval/report/<runId>` | Specific run's report |
 
-### Webhook validation in this MVP
+### Webhook validation
 
-`ADMIN_DEMO_WEBHOOK_URL` is **reserved / informational** in the current build — it is read into the config and surfaced in `/status`, but the eval does not yet trigger or observe webhooks against this URL directly. Actual webhook delivery validation reuses the existing Statewave **smoke-check** path: the runner calls `runSmoke()` for system probes, which observes `/admin/webhooks/stats` against whatever destination `STATEWAVE_WEBHOOK_URL` is configured to on the Statewave server. The eval report's `webhook` block reflects that observation.
-
-If you want a separate, eval-owned webhook destination later, that is a deliberate follow-up — not a missing feature in MVP.
+`ADMIN_DEMO_WEBHOOK_URL` is optional and used by the self-healing eval only — it lets the eval validate end-to-end webhook delivery against a test endpoint. It is **not a separate webhook integration**; the Statewave server's `STATEWAVE_WEBHOOK_URL` is the real webhook config. It is read into the config and surfaced in `/status`, but the eval does not trigger or observe webhooks against this URL directly. Actual webhook delivery validation reuses the existing Statewave **smoke-check** path: the runner calls `runSmoke()` for system probes, which observes `/admin/webhooks/stats` against whatever destination `STATEWAVE_WEBHOOK_URL` is configured to on the Statewave server. The eval report's `webhook` block reflects that observation.
 
 ### Demo data
 
