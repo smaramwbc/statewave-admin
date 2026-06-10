@@ -51,7 +51,7 @@ ADMIN_DEMO_AGENT_URL=
 ADMIN_DEMO_AGENT_API_KEY=
 ADMIN_DEMO_AGENT_BODY_FORMAT=default # or "statewave-web" to point at /api/widget-chat
 ADMIN_DEMO_AGENT_PERSONA=            # only used by statewave-web shape (default: statewave-support)
-ADMIN_DEMO_WEBHOOK_URL=              # reserved / informational in MVP — see README
+ADMIN_DEMO_WEBHOOK_URL=              # optional, self-healing-eval only — see README
 ADMIN_EVAL_STORAGE_PATH=             # optional persistence directory
 ```
 
@@ -248,7 +248,7 @@ A second card on `/diagnostics` runs an LLM-graded multi-turn eval against a dem
 - **Cost.** ~`questions × 2` LLM calls per run (one demo-agent call + one judge call). Defaults: 8 / 20 / 40 questions for smoke / developer / full modes. The card shows the pre-flight estimate before you start.
 - **No automatic firing.** Single-flighted server-side; concurrent runs share the same in-flight promise.
 - **Storage.** In-memory by default. Set `ADMIN_EVAL_STORAGE_PATH=/var/lib/statewave-admin/eval` to persist redacted JSON reports across restarts.
-- **Webhook validation.** `ADMIN_DEMO_WEBHOOK_URL` is reserved / informational in this MVP. The eval reuses the existing Statewave smoke-check path for webhook delivery observation — it inspects whatever destination is configured via `STATEWAVE_WEBHOOK_URL` on the Statewave server.
+- **Webhook validation.** `ADMIN_DEMO_WEBHOOK_URL` is optional and used by the self-healing eval only — it lets the eval validate end-to-end webhook delivery against a test endpoint. It is not a separate webhook integration; the Statewave server's `STATEWAVE_WEBHOOK_URL` is the real webhook config. The eval reuses the existing Statewave smoke-check path for webhook delivery observation — it inspects whatever destination is configured via `STATEWAVE_WEBHOOK_URL` on the Statewave server.
 - **Reports.** JSON + Markdown + a deterministic Copilot improvement prompt. All API keys, bearer tokens, and DB credentials are redacted in stored output.
 
 See [README.md](README.md#self-healing-eval) for the full feature description, levels, and endpoint reference.
