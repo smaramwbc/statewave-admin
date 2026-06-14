@@ -12,6 +12,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { Shell } from '../src/components/layout'
 import { ThemeProvider } from '../src/lib/theme'
 import { AuthProvider } from '../src/lib/auth'
+import { WizardsProvider } from '../src/lib/wizards'
 import { FAKE_SESSION_OK } from './setup'
 
 afterEach(() => {
@@ -43,12 +44,14 @@ function renderShell(route = '/') {
     <MemoryRouter initialEntries={[route]}>
       <ThemeProvider>
         <AuthProvider>
-          <Routes>
-            <Route element={<Shell />}>
-              <Route path="/" element={<div>overview content</div>} />
-              <Route path="/subjects" element={<div>subjects content</div>} />
-            </Route>
-          </Routes>
+          <WizardsProvider>
+            <Routes>
+              <Route element={<Shell />}>
+                <Route path="/" element={<div>overview content</div>} />
+                <Route path="/subjects" element={<div>subjects content</div>} />
+              </Route>
+            </Routes>
+          </WizardsProvider>
         </AuthProvider>
       </ThemeProvider>
     </MemoryRouter>,

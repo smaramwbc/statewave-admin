@@ -17,6 +17,13 @@ export function LoginPage() {
     setError(null)
     const r = await login(password)
     setSubmitting(false)
+    if (r.ok) {
+      // LoginPage renders outside BrowserRouter so useNavigate() is not
+      // available. Replace /login (or any auth-gate URL) with the root so
+      // the router doesn't render a blank page for an unregistered path.
+      window.location.replace('/')
+      return
+    }
     if (!r.ok) {
       setError(
         r.error === 'auth_not_configured'

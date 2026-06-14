@@ -17,6 +17,28 @@ import { readFile, stat } from 'node:fs/promises'
 import { join, normalize, resolve, extname } from 'node:path'
 import { URL } from 'node:url'
 import { dispatch } from './handlers.js'
+import { loadPersistedSecretsAtStartup } from './admin-settings.js'
+
+// Boot order matters: load persisted secrets BEFORE any module reads
+// ADMIN_PASSWORD / STATEWAVE_API_KEY. The auth + proxy modules read
+// env on every request (via `getAuthConfig` / `getProxyConfig`), so
+// mutating process.env up front means they pick up the persisted
+// values transparently — no module wiring changes needed.
+{
+  const result = loadPersistedSecretsAtStartup()
+  if (result.loaded.length > 0) {
+    console.info(`[statewave-admin] loaded persisted secrets: ${result.loaded.join(', ')}`)
+  } else if (result.status === 'disabled') {
+    console.info(
+      '[statewave-admin] persistence disabled — set STATEWAVE_ADMIN_MASTER_KEY to enable.',
+    )
+  } else if (result.status === 'corrupt') {
+    console.warn(
+      '[statewave-admin] persisted secrets file present but undecryptable. '
+      + 'Master key may have changed. UI will prompt the operator to re-enter.',
+    )
+  }
+}
 
 // PORT=0 (or "0") asks the OS for a free port. We can't use the
 // `|| 8080` fallback here because `Number.parseInt('0') || 8080` reads

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Database, Cog, Receipt, Shield, Tag, Webhook, Stethoscope, X } from 'lucide-react'
+import { LayoutDashboard, Database, Cog, Receipt, Shield, Settings, Tag, Webhook, Stethoscope, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTheme } from '../../lib/theme'
 
@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { to: '/policy', label: 'Policy', icon: Shield },
   { to: '/suggested-labels', label: 'Suggested labels', icon: Tag },
   { to: '/diagnostics', label: 'Diagnostics', icon: Stethoscope },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 interface SidebarProps {
@@ -28,6 +29,13 @@ interface SidebarProps {
    */
   mobileOpen: boolean
   onClose: () => void
+  /**
+   * On md+ the sidebar can be toggled to a compact icons-only mode
+   * via the hamburger button in Shell's header. Persists across
+   * reloads (Shell handles the localStorage). Has no effect on
+   * mobile — the drawer always shows full labels.
+   */
+  collapsed?: boolean
 }
 
 /**
@@ -57,7 +65,7 @@ function unlockBodyScroll(scrollY: number) {
   window.scrollTo(0, scrollY)
 }
 
-export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
+export function Sidebar({ mobileOpen, onClose, collapsed = false }: SidebarProps) {
   const { resolvedTheme } = useTheme()
   const location = useLocation()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -97,7 +105,11 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
     }
   }, [location.pathname, mobileOpen, onClose])
 
-  const Logo = (
+  // Logo flavours: in compact desktop mode we drop the wordmark + the
+  // "Admin" badge so the column fits w-14 cleanly. The mobile drawer
+  // always renders the full version regardless of `collapsed` since
+  // there's no compact-on-mobile use case.
+  const FullLogo = (
     <div className="h-14 px-4 flex items-center gap-2.5 border-b border-theme-border">
       <img
         src={resolvedTheme === 'dark' ? '/statewave_icon_dark.png' : '/statewave_icon_light.png'}
@@ -111,7 +123,23 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
     </div>
   )
 
-  const navList = (
+  const CompactLogo = (
+    <div className="h-14 flex items-center justify-center border-b border-theme-border">
+      <img
+        src={resolvedTheme === 'dark' ? '/statewave_icon_dark.png' : '/statewave_icon_light.png'}
+        alt="Statewave Admin"
+        title="Statewave Admin"
+        className="h-6 w-6"
+      />
+    </div>
+  )
+
+  /**
+   * The full label list — used in the mobile drawer and the desktop
+   * expanded column. `compact` swaps to icons-only with a `title` +
+   * `aria-label` fallback so accessibility doesn't regress.
+   */
+  const buildNavList = (compact: boolean) => (
     <ul className="space-y-0.5">
       {navItems.map((item) => {
         const Icon = item.icon
@@ -121,8 +149,12 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
               to={item.to}
               end={item.to === '/'}
               onClick={onClose}
+              aria-label={compact ? item.label : undefined}
+              title={compact ? item.label : undefined}
               className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 min-h-11 py-2 rounded-lg text-sm transition-colors ${
+                `flex items-center ${
+                  compact ? 'justify-center px-0' : 'gap-2.5 px-3'
+                } min-h-11 py-2 rounded-lg text-sm transition-colors ${
                   isActive
                     ? 'bg-[var(--theme-surface-2)] text-theme-primary font-medium'
                     : 'text-theme-secondary hover:bg-[var(--theme-surface-1)] hover:text-theme-primary'
@@ -130,13 +162,15 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
               }
             >
               <Icon className="h-4 w-4 opacity-70 shrink-0" aria-hidden="true" />
-              {item.label}
+              {!compact && item.label}
             </NavLink>
           </li>
         )
       })}
     </ul>
   )
+
+  const navList = buildNavList(false) // used by the mobile drawer
 
   // `__ADMIN_VERSION__` is injected by Vite `define` for app builds; guard it
   // so test (vitest) / non-Vite environments that don't apply the define still
@@ -154,16 +188,37 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
     </div>
   )
 
+  // Footer in compact mode is reduced to just the version number,
+  // centered, so the column doesn't lose its visual anchor.
+  const compactFooter = (
+    <div className="px-1 py-3 border-t border-theme-border">
+      <p className="text-[9px] text-theme-muted text-center" title={`Statewave Admin v${adminVersion}`}>
+        v{adminVersion}
+      </p>
+    </div>
+  )
+
   return (
     <>
-      {/* Desktop / md+ : in-flow column. Keeps the existing dashboard
-          layout untouched on tablet and desktop. */}
-      <aside className="hidden md:flex w-52 border-r border-theme-border bg-[var(--theme-card-bg)] flex-col flex-shrink-0">
-        {Logo}
-        <nav aria-label="Main navigation" className="flex-1 py-3 px-2">
-          {navList}
+      {/* Desktop / md+ : in-flow column. Width swaps between w-52
+          (full labels) and w-14 (icons only) based on `collapsed`.
+          The CSS transition smooths the width change so toggling
+          doesn't feel snappy — but `flex-shrink-0` keeps the
+          column from being squeezed when content next to it grows.
+          The hamburger in Shell's header is the only toggle. */}
+      <aside
+        className={`hidden md:flex border-r border-theme-border bg-[var(--theme-card-bg)] flex-col flex-shrink-0 transition-[width] duration-150 ease-out ${
+          collapsed ? 'w-14' : 'w-52'
+        }`}
+      >
+        {collapsed ? CompactLogo : FullLogo}
+        <nav
+          aria-label="Main navigation"
+          className={`flex-1 py-3 ${collapsed ? 'px-1' : 'px-2'} overflow-y-auto`}
+        >
+          {buildNavList(collapsed)}
         </nav>
-        {footer}
+        {collapsed ? compactFooter : footer}
       </aside>
 
       {/* Mobile: off-canvas drawer + backdrop. Both live outside the

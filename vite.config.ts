@@ -4,12 +4,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { adminAuthPlugin } from './server/vite-plugin'
 
-// Single source of truth for the version label shown in the UI: the package
-// version. Injected at build time so it can never drift from the real release
-// (the footer used to hardcode "v0.9" and went stale at the v1.0 cut).
+// Version shown in the UI. CI passes APP_VERSION from the git tag (e.g. "1.0.1")
+// via `--build-arg APP_VERSION=...` so Docker builds always match the release.
+// Falls back to package.json for local dev builds.
 const pkgVersion = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
 ).version as string
+const appVersion = process.env.APP_VERSION || pkgVersion
 
 export default defineConfig(({ mode }) => {
   // The admin auth + proxy handlers read server-only env vars
@@ -29,7 +30,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss(), adminAuthPlugin()],
     define: {
-      __ADMIN_VERSION__: JSON.stringify(pkgVersion),
+      __ADMIN_VERSION__: JSON.stringify(appVersion),
     },
     resolve: {
       alias: {
