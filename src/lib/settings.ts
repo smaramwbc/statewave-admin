@@ -398,6 +398,22 @@ export async function fetchAdminReadiness(): Promise<ReadinessResponse> {
   return res.json()
 }
 
+// ─── Hot-reload apply ────────────────────────────────────────────────────
+
+/**
+ * Tell the backend to apply all hot-reloadable DB overrides to the live
+ * process immediately, without an orchestrator restart. Clears
+ * `pending_restart` for hot-reloadable settings on the next snapshot fetch.
+ *
+ * Fire-and-forget safe: callers should swallow errors so an older backend
+ * without this endpoint doesn't break the save flow.
+ */
+export async function applySettings(): Promise<{ applied: number; keys: string[] }> {
+  const res = await fetch(adminUrl('/admin/settings/apply'), { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 // ─── Backend restart ─────────────────────────────────────────────────────
 
 /**

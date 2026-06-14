@@ -33,6 +33,7 @@ import {
   patchSetting,
   deleteSetting,
   testSetting,
+  applySettings,
   fetchAdminSettings,
   patchAdminSetting,
   confirmAdminSetting,
@@ -308,6 +309,10 @@ function SettingEditor({ settingKey, entry, onClose, onSaved }: EditorProps) {
     setBusy(true)
     try {
       await patchSetting(settingKey, validation.value)
+      // Fire-and-forget: apply hot-reloadable overrides immediately so the
+      // pending-restart banner clears without an orchestrator restart.
+      // Swallow errors — older backends without this endpoint still work.
+      applySettings().catch(() => undefined)
       toast.success(`Saved ${titleFor(settingKey)}`)
       onSaved()
       onClose()
@@ -826,7 +831,7 @@ function RestartBanner({ pendingKeys, onRestarted }: RestartBannerProps) {
         <RefreshCw className={`w-4 h-4 shrink-0 mt-0.5 ${phase === 'restarting' ? 'animate-spin' : ''}`} />
         <div className="flex-1">
           <p>
-            <strong>Restart required.</strong> {pendingKeys.length} setting{pendingKeys.length === 1 ? '' : 's'} {pendingKeys.length === 1 ? 'is' : 'are'} overridden in the database but won't take effect until the backend restarts.
+            <strong>Restart required.</strong> {pendingKeys.length} setting{pendingKeys.length === 1 ? '' : 's'} {pendingKeys.length === 1 ? 'is' : 'are'} wired at startup (CORS, auth middleware, embedding provider) and won't take effect until the backend restarts.
           </p>
           <p className="mt-1 font-mono text-xs text-theme-secondary break-all">
             {pendingKeys.join(', ')}
@@ -1043,6 +1048,7 @@ export function SettingsPage() {
   const onRevert = async (key: string) => {
     try {
       await deleteSetting(key)
+      applySettings().catch(() => undefined)
       toast.success(`Reverted ${key} to env`)
       void load()
     } catch (e) {
