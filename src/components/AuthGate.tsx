@@ -1,18 +1,16 @@
 import type { ReactNode } from 'react'
-import { AlertTriangle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
-import { isTauri } from '../lib/tauri-bridge'
 import { LoginPage } from '../pages/LoginPage'
 
+/**
+ * AuthGate sits OUTSIDE the BrowserRouter — it has to render the
+ * LoginPage without router context, so it can't use wizard / route
+ * hooks. The previous "admin auth disabled" banner has been moved
+ * into Shell (which IS inside the router) so it can openWizard()
+ * in-place via the WizardsProvider rather than full-navigate.
+ */
 export function AuthGate({ children }: { children: ReactNode }) {
   const { loading, authenticated, configError, authDisabled } = useAuth()
-  // Inside the Tauri desktop bundle the embedded sidecar deliberately
-  // runs with `ADMIN_AUTH_DISABLED=true` — the OS user + the file
-  // permissions on the per-user config dir are the auth boundary, not
-  // a server-side password. Suppress the "DISABLED — local dev only"
-  // banner in that context to avoid telling the user something
-  // misleading.
-  const showDisabledBanner = authDisabled && !isTauri()
 
   if (loading) {
     return (
@@ -35,26 +33,5 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return <LoginPage />
   }
 
-  // Banner-aware layout. Without this wrapper, the ⚠️ banner sits above
-  // Shell's `min-h-screen` container and forces total page height to
-  // `banner + 100vh`, which produces a body-level scrollbar even when the
-  // page contents fit. Making the parent a fixed-height column flex lets
-  // the banner consume its natural row and Shell fill the remainder.
-  return (
-    <div className="h-screen flex flex-col">
-      {showDisabledBanner && (
-        <div
-          role="alert"
-          className="shrink-0 bg-amber-100 dark:bg-amber-950/50 border-b border-amber-300 dark:border-amber-900 text-amber-800 dark:text-amber-300 text-xs px-4 py-1.5 text-center font-medium flex items-center justify-center gap-2"
-        >
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            Admin authentication is DISABLED (ADMIN_AUTH_DISABLED=true). For
-            local development only — never use in production.
-          </span>
-        </div>
-      )}
-      <div className="flex-1 min-h-0 flex flex-col">{children}</div>
-    </div>
-  )
+  return <>{children}</>
 }

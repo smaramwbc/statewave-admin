@@ -4,6 +4,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider } from '../src/lib/theme'
 import { AuthProvider } from '../src/lib/auth'
+import { WizardsProvider } from '../src/lib/wizards'
 import { Shell } from '../src/components/layout/Shell'
 import { Modal } from '../src/components/ui/Modal'
 import { Pagination } from '../src/components/ui/Pagination'
@@ -19,7 +20,9 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(
     <ThemeProvider>
       <AuthProvider>
-        <MemoryRouter>{ui}</MemoryRouter>
+        <MemoryRouter>
+          <WizardsProvider>{ui}</WizardsProvider>
+        </MemoryRouter>
       </AuthProvider>
     </ThemeProvider>
   )

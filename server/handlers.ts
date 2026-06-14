@@ -20,6 +20,12 @@ import {
 } from './auth.js'
 import { getProxyConfig, proxyAdminRequest } from './proxy.js'
 import { handlePersonaHealth } from './persona-health.js'
+import {
+  handleAdminSettings,
+  handleAdminSettingsConfirm,
+  handleAdminSettingsRevert,
+  handleEnableAdminAuth,
+} from './admin-settings.js'
 import { getSmokeConfig, getSmokeStatus, runSmoke } from './smoke.js'
 import {
   getEvalStatus,
@@ -59,6 +65,12 @@ export const ROUTES = {
   evalReportPrefix: '/api/self-healing-eval/report/',
   evalQuestionsGenerate: '/api/self-healing-eval/questions/generate',
   evalGroundingSuggest: '/api/self-healing-eval/grounding/suggest',
+  adminSettings: '/api/admin-settings',
+  adminSettingsConfirm: '/api/admin-settings/confirm',
+  adminSettingsRevert: '/api/admin-settings/revert',
+  proxyInfo: '/api/admin/proxy-info',
+  adminReadiness: '/api/admin/readiness-check',
+  enableAdminAuth: '/api/admin-settings/enable-admin-auth',
 } as const
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -471,6 +483,177 @@ export async function dispatch(
       await handleEvalReportById(req, res, decodeURIComponent(runId))
       return true
     }
+  }
+  if (p === ROUTES.proxyInfo) {
+    if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
+      sendJson(res, 405, { error: 'method_not_allowed' })
+      return true
+    }
+    const authCfg = getAuthConfig()
+    const auth = checkRequestAuth(asRequestLike(req), authCfg)
+    if (!auth.ok) {
+      const status = auth.reason === 'misconfigured' ? 503 : auth.status
+      const error =
+        auth.reason === 'misconfigured' ? 'auth_not_configured' : 'unauthorized'
+      sendJson(res, status, { error })
+      return true
+    }
+    const proxyCfg = getProxyConfig()
+    sendJson(res, 200, {
+      // The URL the admin's HTTP-side proxy uses to reach the backend.
+      // For container deploys this is the service-name URL ("http://api:8100"),
+      // which is NOT the same as the URL external clients use; surface it
+      // anyway so operators can sanity-check the proxy wiring.
+      api_url: proxyCfg.apiUrl ?? null,
+      // Whether the admin proxy is currently injecting an API key. Doesn't
+      // expose the key itself — set/unset only.
+      api_key_set: Boolean(proxyCfg.apiKey),
+    })
+    return true
+  }
+  if (p === ROUTES.adminReadiness) {
+    if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
+      sendJson(res, 405, { error: 'method_not_allowed' })
+      return true
+    }
+    // Same auth gate as everything else — production hints are for the
+    // operator, but the issue list itself can hint at unconfigured
+    // secrets, so anonymous access would help an attacker enumerate
+    // weaknesses.
+    const authCfg = getAuthConfig()
+    const auth = checkRequestAuth(asRequestLike(req), authCfg)
+    if (!auth.ok) {
+      const status = auth.reason === 'misconfigured' ? 503 : auth.status
+      const error =
+        auth.reason === 'misconfigured' ? 'auth_not_configured' : 'unauthorized'
+      sendJson(res, status, { error })
+      return true
+    }
+    const issues: Array<{
+      id: string
+      severity: 'critical' | 'high' | 'medium' | 'low'
+      title: string
+      summary: string
+      fix?:
+        | { kind: 'admin_tab'; field?: string }
+        | { kind: 'env'; env_var?: string }
+        | { kind: 'wizard'; id: 'enable-admin-auth' }
+    }> = []
+
+    // Admin auth bypass — by far the most common foot-gun in dev → prod
+    // promotions, and the only "I left it on by mistake" failure mode
+    // that nukes the whole admin without warning. Mark critical.
+    if (process.env.ADMIN_AUTH_DISABLED === 'true') {
+      issues.push({
+        id: 'admin_auth_disabled',
+        severity: 'critical',
+        title: 'Admin authentication is disabled',
+        summary:
+          'ADMIN_AUTH_DISABLED=true bypasses the admin login entirely. ' +
+          'Anyone reaching this URL can manage settings, view receipts, ' +
+          'and rotate keys. Click Fix to set an admin password and ' +
+          'enable login — the change applies instantly (no restart needed) ' +
+          'and persists in the encrypted store.',
+        fix: { kind: 'wizard', id: 'enable-admin-auth' },
+      })
+    } else if (!process.env.ADMIN_PASSWORD) {
+      // If ADMIN_AUTH_DISABLED isn't set, the auth gate ALSO refuses to
+      // start without ADMIN_PASSWORD — so this branch is mostly for
+      // forks that monkey-patched the gate. Still worth flagging.
+      issues.push({
+        id: 'no_admin_password',
+        severity: 'critical',
+        title: 'ADMIN_PASSWORD is not set',
+        summary:
+          'Set ADMIN_PASSWORD via the Admin server tab (encrypted, ' +
+          'persisted) or in your deployment env.',
+        fix: { kind: 'admin_tab', field: 'admin_password' },
+      })
+    }
+
+    // Persistence layer for the admin's own creds. If the master key
+    // isn't set, every confirmed change reverts on restart. Functional,
+    // but a foot-gun in production.
+    const masterKey = process.env.STATEWAVE_ADMIN_MASTER_KEY
+    if (!masterKey || masterKey.length < 8) {
+      issues.push({
+        id: 'admin_persistence_disabled',
+        severity: 'high',
+        title: 'Admin-secrets persistence is disabled',
+        summary:
+          'STATEWAVE_ADMIN_MASTER_KEY is unset (or too short). Changes to ' +
+          'ADMIN_PASSWORD and STATEWAVE_API_KEY made via the UI will ' +
+          'revert on restart. Set a passphrase (≥ 8 chars) to enable ' +
+          'AES-256-GCM persistence.',
+        fix: { kind: 'env', env_var: 'STATEWAVE_ADMIN_MASTER_KEY' },
+      })
+    } else if (masterKey === 'dev-local-master-key-change-me') {
+      issues.push({
+        id: 'default_master_key',
+        severity: 'high',
+        title: 'Admin master key is the dev default',
+        summary:
+          'STATEWAVE_ADMIN_MASTER_KEY matches the documented dev default. ' +
+          'Rotate to a long random value before this admin handles ' +
+          'production credentials.',
+        fix: { kind: 'env', env_var: 'STATEWAVE_ADMIN_MASTER_KEY' },
+      })
+    }
+
+    // Admin proxy must have an API key configured if the backend has
+    // auth enabled. If backend says auth is on but proxy has no key,
+    // every UI call will 401 — this catches that mismatch BEFORE the
+    // operator sees a broken dashboard.
+    const proxyCfg = getProxyConfig()
+    if (!proxyCfg.apiKey) {
+      // We don't know whether the backend has auth on without calling
+      // it — the dashboard's check combines both endpoints, so we just
+      // flag "key absent" here and let the frontend decide whether to
+      // show it (e.g. hide when backend auth_enabled=false).
+      issues.push({
+        id: 'proxy_api_key_unset',
+        severity: 'low',
+        title: 'Admin proxy has no STATEWAVE_API_KEY',
+        summary:
+          'No bearer token is being injected. Harmless if the backend ' +
+          'has auth disabled; mandatory the moment you enable it.',
+        fix: { kind: 'admin_tab', field: 'statewave_api_key' },
+      })
+    }
+
+    sendJson(res, 200, { issues })
+    return true
+  }
+  if (
+    p === ROUTES.adminSettings ||
+    p === ROUTES.adminSettingsConfirm ||
+    p === ROUTES.adminSettingsRevert ||
+    p === ROUTES.enableAdminAuth
+  ) {
+    // Gate identically to /api/proxy — a misconfigured operator must
+    // still be allowed to read state on an open admin, but mutating the
+    // password / api key requires an authenticated session.
+    //
+    // ENABLE-ADMIN-AUTH special case: it's the ONLY route that's
+    // intentionally callable when ADMIN_AUTH_DISABLED=true — that's the
+    // whole point. checkRequestAuth already returns ok=true under that
+    // flag, so it's covered. If an operator manages to delete
+    // ADMIN_AUTH_DISABLED without first setting ADMIN_PASSWORD they hit
+    // the 503 'misconfigured' branch, which is correct.
+    const authCfg = getAuthConfig()
+    const auth = checkRequestAuth(asRequestLike(req), authCfg)
+    if (!auth.ok) {
+      const status = auth.reason === 'misconfigured' ? 503 : auth.status
+      const error =
+        auth.reason === 'misconfigured' ? 'auth_not_configured' : 'unauthorized'
+      sendJson(res, status, { error })
+      return true
+    }
+    if (p === ROUTES.adminSettings) await handleAdminSettings(req, res)
+    else if (p === ROUTES.adminSettingsConfirm) await handleAdminSettingsConfirm(req, res)
+    else if (p === ROUTES.adminSettingsRevert) await handleAdminSettingsRevert(req, res)
+    else await handleEnableAdminAuth(req, res)
+    return true
   }
   return false
 }
