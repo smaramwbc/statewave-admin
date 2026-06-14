@@ -211,6 +211,7 @@ export class SecretsStore {
       this.cacheStatus = 'corrupt'
       throw new Error(
         `failed to decrypt admin secrets at ${this.cfg.filePath}: ${(exc as Error).message}`,
+        { cause: exc },
       )
     }
   }
