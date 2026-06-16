@@ -1942,3 +1942,250 @@ export async function fetchMemoryProvenance(
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+// ─── Compiler Trace Inspector ────────────────────────────────────────────────
+
+export interface CompilerTraceEpisode {
+  id: string
+  source: string
+  type: string
+  payload: Record<string, unknown>
+  created_at: string
+  text_preview: string
+}
+
+export interface CompilerTraceResponse {
+  memory_id: string
+  kind: string
+  content: string
+  summary: string
+  confidence: number
+  status: string
+  created_at: string
+  compiler: string
+  model: string | null
+  source_episode_count: number
+  reconstructed_input: CompilerTraceEpisode[]
+}
+
+export async function fetchCompilerTrace(
+  subjectId: string,
+  memoryId: string,
+  opts: { tenantId?: string } = {},
+): Promise<CompilerTraceResponse> {
+  const params = opts.tenantId
+    ? `?tenant_id=${encodeURIComponent(opts.tenantId)}`
+    : ''
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/memories/${encodeURIComponent(memoryId)}/compiler-trace${params}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Memory Conflict Detector ────────────────────────────────────────────────
+
+export interface ConflictPair {
+  memory_a_id: string
+  memory_a_kind: string
+  memory_a_content: string
+  memory_b_id: string
+  memory_b_kind: string
+  memory_b_content: string
+  similarity: number
+}
+
+export interface ConflictsResponse {
+  pairs: ConflictPair[]
+  total_memories_checked: number
+  embedding_available: boolean
+  error: string | null
+}
+
+export async function fetchMemoryConflicts(
+  subjectId: string,
+  opts: { threshold?: number; limit?: number; tenantId?: string } = {},
+): Promise<ConflictsResponse> {
+  const params = new URLSearchParams()
+  if (opts.threshold != null) params.set('threshold', String(opts.threshold))
+  if (opts.limit != null) params.set('limit', String(opts.limit))
+  if (opts.tenantId) params.set('tenant_id', opts.tenantId)
+  const qs = params.toString()
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/conflicts${qs ? `?${qs}` : ''}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Memory Timeline Scrubber ─────────────────────────────────────────────────
+
+export interface MemoryTimelineEvent {
+  date: string
+  memories_added: number
+  cumulative_count: number
+}
+
+export interface TimelineMemory {
+  id: string
+  kind: string
+  content_preview: string
+  confidence: number
+  status: string
+  created_at: string
+}
+
+export interface MemoryTimelineResponse {
+  events: MemoryTimelineEvent[]
+  snapshot_at: string | null
+  memories_at_snapshot: TimelineMemory[]
+  subject_id: string
+}
+
+export async function fetchMemoryTimeline(
+  subjectId: string,
+  opts: { snapshotAt?: string; tenantId?: string } = {},
+): Promise<MemoryTimelineResponse> {
+  const params = new URLSearchParams()
+  if (opts.snapshotAt) params.set('snapshot_at', opts.snapshotAt)
+  if (opts.tenantId) params.set('tenant_id', opts.tenantId)
+  const qs = params.toString()
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/memory-timeline${qs ? `?${qs}` : ''}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Policy Sandbox ───────────────────────────────────────────────────────────
+
+export interface PolicySandboxResult {
+  memory_id: string
+  kind: string
+  content_preview: string
+  sensitivity_labels: string[]
+  action: 'allow' | 'deny' | 'redact'
+  rule_id: string | null
+  matched_labels: string[]
+}
+
+export interface PolicySandboxResponse {
+  results: PolicySandboxResult[]
+  total_memories: number
+  allowed: number
+  denied: number
+  redacted: number
+  error: string | null
+}
+
+export async function runPolicySandbox(
+  subjectId: string,
+  yamlContent: string,
+  opts: { callerId?: string; callerType?: string; tenantId?: string } = {},
+): Promise<PolicySandboxResponse> {
+  const params = opts.tenantId
+    ? `?tenant_id=${encodeURIComponent(opts.tenantId)}`
+    : ''
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/policy-sandbox${params}`
+  const res = await fetch(adminUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      yaml_content: yamlContent,
+      caller_id: opts.callerId ?? null,
+      caller_type: opts.callerType ?? null,
+    }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Memory Cluster View ──────────────────────────────────────────────────────
+
+export interface ClusterPoint {
+  memory_id: string
+  kind: string
+  content_preview: string
+  confidence: number
+  status: string
+  x: number
+  y: number
+}
+
+export interface MemoryClustersResponse {
+  points: ClusterPoint[]
+  total_memories: number
+  embedding_available: boolean
+  error: string | null
+}
+
+export async function fetchMemoryClusters(
+  subjectId: string,
+  opts: { tenantId?: string } = {},
+): Promise<MemoryClustersResponse> {
+  const params = opts.tenantId
+    ? `?tenant_id=${encodeURIComponent(opts.tenantId)}`
+    : ''
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/memory-clusters${params}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Receipts + Regression Tester ────────────────────────────────────────────
+
+export interface AdminReceiptListItem {
+  receipt_id: string
+  as_of: string
+  created_at: string
+  mode: string
+  context_size_bytes: number
+  memory_count: number
+}
+
+export interface AdminReceiptListResponse {
+  items: AdminReceiptListItem[]
+  total: number
+}
+
+export interface RegressionMemory {
+  memory_id: string
+  kind: string
+  content_preview: string
+  status: string
+  created_at: string
+  change: 'stable' | 'tombstoned' | 'superseded' | 'deleted' | 'new'
+}
+
+export interface RegressionResponse {
+  receipt_id: string
+  receipt_as_of: string
+  stable: RegressionMemory[]
+  dropped: RegressionMemory[]
+  new_memories: RegressionMemory[]
+}
+
+export async function fetchSubjectReceipts(
+  subjectId: string,
+  opts: { limit?: number; tenantId?: string } = {},
+): Promise<AdminReceiptListResponse> {
+  const params = new URLSearchParams()
+  if (opts.limit != null) params.set('limit', String(opts.limit))
+  if (opts.tenantId) params.set('tenant_id', opts.tenantId)
+  const qs = params.toString()
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/admin-receipts${qs ? `?${qs}` : ''}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function fetchReceiptRegression(
+  subjectId: string,
+  receiptId: string,
+  opts: { tenantId?: string } = {},
+): Promise<RegressionResponse> {
+  const params = opts.tenantId
+    ? `?tenant_id=${encodeURIComponent(opts.tenantId)}`
+    : ''
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/admin-receipts/${encodeURIComponent(receiptId)}/regression${params}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
