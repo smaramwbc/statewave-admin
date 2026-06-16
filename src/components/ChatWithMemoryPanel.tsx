@@ -192,7 +192,7 @@ function ChatInput({
           disabled={isLoading}
           placeholder="Ask about memory in the selected subjects…"
           rows={1}
-          className="flex-1 resize-none bg-transparent text-sm text-theme-primary placeholder:text-theme-muted focus:outline-none disabled:opacity-50 leading-relaxed"
+          className="flex-1 resize-none bg-transparent text-sm text-theme-primary placeholder:text-theme-muted outline-none ring-0 disabled:opacity-50 leading-relaxed"
           style={{ minHeight: '24px', maxHeight: '120px' }}
           aria-label="Chat message input"
         />
@@ -243,11 +243,6 @@ export function ChatWithMemoryPanel({ open, onClose, subjects }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, isLoading])
-
-  // Auto-open context panel on first retrieval
-  useEffect(() => {
-    if (contextItems.length > 0) setShowContext(true)
-  }, [contextItems.length])
 
   const handleSend = useCallback(
     (text: string) => { sendMessage(text) },
