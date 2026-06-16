@@ -1559,15 +1559,16 @@ function ActivityHeatmap({ subjectId }: { subjectId: string }) {
       <h3 className="text-sm font-medium text-theme-primary mb-3">
         {totalEpisodes.toLocaleString()} episode{totalEpisodes !== 1 ? 's' : ''} in the last year
       </h3>
+      {/* Outer wrapper: relative anchor for the tooltip (no overflow clip) */}
       <div
         ref={containerRef}
-        className="relative rounded-xl border border-theme-border bg-[var(--theme-card-bg)] px-4 pt-3 pb-4 overflow-x-auto"
+        className="relative"
         onMouseLeave={() => setHoveredCell(null)}
       >
-        {/* Tooltip */}
+        {/* Tooltip — lives outside the scroll container so it's never clipped */}
         {hoveredCell && (
           <div
-            className="absolute z-20 pointer-events-none -translate-x-1/2 -translate-y-full mb-1.5 rounded-lg border border-theme-border bg-[var(--theme-card-bg)] shadow-xl px-3 py-2.5 text-xs min-w-[180px]"
+            className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-full rounded-lg border border-theme-border bg-[var(--theme-card-bg)] shadow-xl px-3 py-2.5 text-xs min-w-[180px]"
             style={{ left: hoveredCell.x, top: hoveredCell.y - 8 }}
           >
             <p className="font-medium text-theme-primary mb-1.5">{formatDate(hoveredCell.day.date)}</p>
@@ -1582,7 +1583,6 @@ function ActivityHeatmap({ subjectId }: { subjectId: string }) {
                   <span className="font-medium text-theme-primary tabular-nums">{hoveredCell.day.memory_count}</span>
                 </div>
               )}
-              {/* Mini bar */}
               {hoveredCell.day.episode_count > 0 && (
                 <div className="mt-2 pt-1.5 border-t border-theme-border/50">
                   <div className="h-1.5 rounded-full bg-[var(--theme-surface-1)] overflow-hidden">
@@ -1601,51 +1601,54 @@ function ActivityHeatmap({ subjectId }: { subjectId: string }) {
           </div>
         )}
 
-        <div className="flex gap-[3px] min-w-max">
-          {/* Day-of-week label column */}
-          <div className="flex flex-col gap-[3px] mr-1.5">
-            <div className="h-4" />
-            {ROW_LABELS.map((label, i) => (
-              <div key={i} className="w-[11px] h-[11px] flex items-center justify-end">
-                <span className="text-[9px] text-theme-muted leading-none whitespace-nowrap -mr-0.5" style={{ minWidth: '26px', textAlign: 'right' }}>
-                  {label}
-                </span>
+        {/* Inner scroll container — overflow-x only here */}
+        <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] px-4 pt-3 pb-4 overflow-x-auto">
+          <div className="flex gap-[3px] min-w-max">
+            {/* Day-of-week label column */}
+            <div className="flex flex-col gap-[3px] mr-1.5">
+              <div className="h-4" />
+              {ROW_LABELS.map((label, i) => (
+                <div key={i} className="w-[11px] h-[11px] flex items-center justify-end">
+                  <span className="text-[9px] text-theme-muted leading-none whitespace-nowrap -mr-0.5" style={{ minWidth: '26px', textAlign: 'right' }}>
+                    {label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Week columns */}
+            {weeks.map((week, wi) => (
+              <div key={wi} className="flex flex-col gap-[3px]">
+                <div className="h-4 flex items-end pb-0.5">
+                  {monthLabels[wi] && (
+                    <span className="text-[10px] text-theme-muted leading-none whitespace-nowrap">
+                      {monthLabels[wi]}
+                    </span>
+                  )}
+                </div>
+                {week.map((day, di) =>
+                  day === null ? (
+                    <div key={di} className="w-[11px] h-[11px]" />
+                  ) : (
+                    <div
+                      key={di}
+                      onMouseEnter={(e) => handleCellEnter(e, day)}
+                      className={`w-[11px] h-[11px] rounded-[2px] cursor-default hover:ring-1 hover:ring-emerald-500/60 hover:scale-125 transition-transform ${HEATMAP_LEVELS[cellLevel(day.episode_count, maxCount)]}`}
+                    />
+                  )
+                )}
               </div>
             ))}
           </div>
 
-          {/* Week columns */}
-          {weeks.map((week, wi) => (
-            <div key={wi} className="flex flex-col gap-[3px]">
-              <div className="h-4 flex items-end pb-0.5">
-                {monthLabels[wi] && (
-                  <span className="text-[10px] text-theme-muted leading-none whitespace-nowrap">
-                    {monthLabels[wi]}
-                  </span>
-                )}
-              </div>
-              {week.map((day, di) =>
-                day === null ? (
-                  <div key={di} className="w-[11px] h-[11px]" />
-                ) : (
-                  <div
-                    key={di}
-                    onMouseEnter={(e) => handleCellEnter(e, day)}
-                    className={`w-[11px] h-[11px] rounded-[2px] cursor-default hover:ring-1 hover:ring-emerald-500/60 hover:scale-125 transition-transform ${HEATMAP_LEVELS[cellLevel(day.episode_count, maxCount)]}`}
-                  />
-                )
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center justify-end gap-[3px] mt-3">
-          <span className="text-[10px] text-theme-muted mr-1">Less</span>
-          {([0, 1, 2, 3, 4] as const).map((lvl) => (
-            <div key={lvl} className={`w-[11px] h-[11px] rounded-[2px] ${HEATMAP_LEVELS[lvl]}`} />
-          ))}
-          <span className="text-[10px] text-theme-muted ml-1">More</span>
+          {/* Legend */}
+          <div className="flex items-center justify-end gap-[3px] mt-3">
+            <span className="text-[10px] text-theme-muted mr-1">Less</span>
+            {([0, 1, 2, 3, 4] as const).map((lvl) => (
+              <div key={lvl} className={`w-[11px] h-[11px] rounded-[2px] ${HEATMAP_LEVELS[lvl]}`} />
+            ))}
+            <span className="text-[10px] text-theme-muted ml-1">More</span>
+          </div>
         </div>
       </div>
     </section>
