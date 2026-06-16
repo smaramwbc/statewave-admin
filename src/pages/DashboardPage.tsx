@@ -79,21 +79,10 @@ export function DashboardPage() {
           }
         />
 
-      {/* "Anything I need to fix before turning this loose?" — runs
-          rule-based checks against backend + admin config and lists
-          critical/high issues with one-click Fix buttons that
-          deep-link into Settings. Hides itself when zero issues found
-          so the dashboard stays quiet on a healthy deployment. */}
-      <div className="mb-4">
-        <ProductionReadinessCard />
-      </div>
-
-      {/* "Where is my backend, and how is it configured?" — the
-          dashboard's answer to that, surfaced at the top so a new
-          operator's first scroll lands on the connection info. Pulls
-          version + bind + auth state from the backend, and the proxy
-          URL from the admin server. Loads in parallel with the rest
-          of the dashboard; never blocks. */}
+      {/* "Where is my backend, and how is it configured?" — surfaced
+          first so the operator's opening question ("is the backend up
+          and what URL is it on?") is answered before anything else.
+          Loads in parallel with the rest of the dashboard; never blocks. */}
       <div className="mb-4">
         <ConnectionInfoCard />
       </div>
@@ -104,6 +93,15 @@ export function DashboardPage() {
           On a healthy installed deployment it renders nothing, keeping
           the dashboard focused on live operational metrics. */}
       <SmokeCheckBanner />
+
+      {/* "Anything I need to fix before turning this loose?" — runs
+          rule-based checks against backend + admin config and lists
+          critical/high issues with one-click Fix buttons that
+          deep-link into Settings. Hides itself when zero issues found
+          so the dashboard stays quiet on a healthy deployment. */}
+      <div className="mb-4">
+        <ProductionReadinessCard />
+      </div>
 
       {error && !data && (
         <ErrorState

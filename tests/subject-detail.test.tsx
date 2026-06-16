@@ -79,13 +79,13 @@ describe('SubjectDetailPage', () => {
     const healthyElements = screen.getAllByText('healthy')
     expect(healthyElements.length).toBeGreaterThan(0)
 
-    // Check tabs are rendered (use role to find tab buttons)
+    // Check group tabs are rendered (10 leaf tabs collapsed into 4 groups)
     const tabs = document.querySelectorAll('button')
     const tabLabels = Array.from(tabs).map((t) => t.textContent)
     expect(tabLabels.some((l) => l?.includes('Overview'))).toBe(true)
     expect(tabLabels.some((l) => l?.includes('Memories'))).toBe(true)
     expect(tabLabels.some((l) => l?.includes('Episodes'))).toBe(true)
-    expect(tabLabels.some((l) => l?.includes('Sessions'))).toBe(true)
+    expect(tabLabels.some((l) => l?.includes('Debug'))).toBe(true)
   })
 
   it('renders error state on 404', async () => {
@@ -149,7 +149,7 @@ describe('Subject Detail - Tab Navigation', () => {
     expect(tabLabels.some((l) => l?.includes('Overview'))).toBe(true)
     expect(tabLabels.some((l) => l?.includes('Memories'))).toBe(true)
     expect(tabLabels.some((l) => l?.includes('Episodes'))).toBe(true)
-    expect(tabLabels.some((l) => l?.includes('Sessions'))).toBe(true)
+    expect(tabLabels.some((l) => l?.includes('Debug'))).toBe(true)
   })
 
   it('shows memory count in tab badge', async () => {
@@ -193,7 +193,15 @@ describe('Subject Detail - Tab Navigation', () => {
     renderWithRouter('user_123')
 
     await waitFor(() => {
-      // The session count (3) should appear in the Sessions tab
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    // Sessions sub-tab is inside the Episodes group — activate it first
+    const episodesGroup = screen.getAllByRole('button').find((b) => b.textContent?.includes('Episodes'))
+    fireEvent.click(episodesGroup!)
+
+    await waitFor(() => {
+      // Sessions sub-tab is now visible and shows session count
       const buttons = screen.getAllByRole('button')
       const sessionsTab = buttons.find((b) => b.textContent?.includes('Sessions'))
       expect(sessionsTab?.textContent).toContain('3')
@@ -643,7 +651,11 @@ describe('Subject Detail - Inspector Interactions', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    // Click Sessions tab
+    // Sessions is a sub-tab inside the Episodes group — activate group first
+    const episodesGroup = screen.getAllByRole('button').find((b) => b.textContent?.includes('Episodes'))
+    fireEvent.click(episodesGroup!)
+
+    // Sessions sub-tab is now in DOM
     const sessionsTab = screen.getAllByRole('button').find((b) => b.textContent?.includes('Sessions'))
     fireEvent.click(sessionsTab!)
 
@@ -661,6 +673,10 @@ describe('Subject Detail - Inspector Interactions', () => {
     await waitFor(() => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
+
+    // Sessions is a sub-tab inside the Episodes group — activate group first
+    const episodesGroup = screen.getAllByRole('button').find((b) => b.textContent?.includes('Episodes'))
+    fireEvent.click(episodesGroup!)
 
     const sessionsTab = screen.getAllByRole('button').find((b) => b.textContent?.includes('Sessions'))
     fireEvent.click(sessionsTab!)
@@ -844,9 +860,9 @@ describe('Subject Detail - Session Timeline', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    // Navigate to Sessions tab
-    const sessionsTab = screen.getAllByRole('button').find((b) => b.textContent?.includes('Sessions'))
-    fireEvent.click(sessionsTab!)
+    // Sessions is a sub-tab inside Episodes group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Episodes'))!)
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Sessions'))!)
 
     // Wait for sessions to load and show timeline link
     await waitFor(() => {
@@ -862,6 +878,8 @@ describe('Subject Detail - Session Timeline', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
+    // Sessions is a sub-tab inside Episodes group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Episodes'))!)
     const sessionsTab = screen.getAllByRole('button').find((b) => b.textContent?.includes('Sessions'))
     fireEvent.click(sessionsTab!)
 
@@ -1090,7 +1108,7 @@ describe('Subject Detail - New Inspector Features (tabs)', () => {
     cleanup()
   })
 
-  it('renders all 10 tabs after subject loads', async () => {
+  it('renders 4 group tabs and exposes sub-tabs on activation', async () => {
     createComprehensiveMock()
     renderWithRouter('user_123')
 
@@ -1098,10 +1116,31 @@ describe('Subject Detail - New Inspector Features (tabs)', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    const expectedTabs = ['Overview', 'Memories', 'Episodes', 'Sessions', 'Retrieval', 'Conflicts', 'Timeline', 'Policy', 'Clusters', 'Receipts']
-    for (const tab of expectedTabs) {
-      expect(screen.getByRole('button', { name: new RegExp(tab, 'i') })).toBeInTheDocument()
-    }
+    // 4 top-level group tabs are always visible
+    const allBtns = screen.getAllByRole('button')
+    const allLabels = allBtns.map((b) => b.textContent)
+    expect(allLabels.some((l) => l?.includes('Overview'))).toBe(true)
+    expect(allLabels.some((l) => l?.includes('Memories'))).toBe(true)
+    expect(allLabels.some((l) => l?.includes('Episodes'))).toBe(true)
+    expect(allLabels.some((l) => l?.includes('Debug'))).toBe(true)
+
+    // Memories group reveals Retrieval / Conflicts / Timeline / Clusters sub-tabs
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Memories'))!)
+    const memBtns = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(memBtns.some((l) => l?.includes('Retrieval'))).toBe(true)
+    expect(memBtns.some((l) => l?.includes('Conflicts'))).toBe(true)
+    expect(memBtns.some((l) => l?.includes('Timeline'))).toBe(true)
+    expect(memBtns.some((l) => l?.includes('Clusters'))).toBe(true)
+
+    // Episodes group reveals Sessions sub-tab
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Episodes'))!)
+    expect(screen.getAllByRole('button').some((b) => b.textContent?.includes('Sessions'))).toBe(true)
+
+    // Debug group reveals Policy + Receipts sub-tabs
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Debug'))!)
+    const dbgBtns = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(dbgBtns.some((l) => l?.includes('Policy'))).toBe(true)
+    expect(dbgBtns.some((l) => l?.includes('Receipts'))).toBe(true)
   })
 
   it('shows Conflicts tab content when clicked', async () => {
@@ -1112,8 +1151,9 @@ describe('Subject Detail - New Inspector Features (tabs)', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    const conflictsTab = screen.getByRole('button', { name: /Conflicts/i })
-    fireEvent.click(conflictsTab)
+    // Conflicts is a sub-tab inside Memories group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Memories'))!)
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Conflicts'))!)
 
     await waitFor(() => {
       expect(screen.getByText('Memory Conflict Detector')).toBeInTheDocument()
@@ -1128,8 +1168,9 @@ describe('Subject Detail - New Inspector Features (tabs)', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    const timelineTab = screen.getByRole('button', { name: /Timeline/i })
-    fireEvent.click(timelineTab)
+    // Timeline is a sub-tab inside Memories group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Memories'))!)
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Timeline'))!)
 
     await waitFor(() => {
       expect(screen.getByText('Memory Timeline')).toBeInTheDocument()
@@ -1144,8 +1185,9 @@ describe('Subject Detail - New Inspector Features (tabs)', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    const policyTab = screen.getByRole('button', { name: /Policy/i })
-    fireEvent.click(policyTab)
+    // Policy is a sub-tab inside Debug group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Debug'))!)
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Policy'))!)
 
     await waitFor(() => {
       expect(screen.getByText('Policy Sandbox')).toBeInTheDocument()
@@ -1164,8 +1206,9 @@ describe('Subject Detail - New Inspector Features (tabs)', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    const clustersTab = screen.getByRole('button', { name: /Clusters/i })
-    fireEvent.click(clustersTab)
+    // Clusters is a sub-tab inside Memories group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Memories'))!)
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Clusters'))!)
 
     await waitFor(() => {
       expect(screen.getByText('Memory Cluster View')).toBeInTheDocument()
@@ -1180,8 +1223,9 @@ describe('Subject Detail - New Inspector Features (tabs)', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    const receiptsTab = screen.getByRole('button', { name: /Receipts/i })
-    fireEvent.click(receiptsTab)
+    // Receipts is a sub-tab inside Debug group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Debug'))!)
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Receipts'))!)
 
     await waitFor(() => {
       expect(screen.getByText('Retrieval Regression Tester')).toBeInTheDocument()
@@ -1266,7 +1310,9 @@ describe('Subject Detail - Conflicts scan', () => {
       expect(screen.getByText('user_123')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Conflicts/i }))
+    // Conflicts is a sub-tab inside Memories group
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Memories'))!)
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent?.includes('Conflicts'))!)
 
     await waitFor(() => {
       expect(screen.getByText('Scan for conflicts')).toBeInTheDocument()

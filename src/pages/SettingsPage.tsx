@@ -24,6 +24,7 @@ import {
   PageHeader,
   ErrorState,
   LoadingState,
+  SearchInput,
   Tabs,
   TabPanel,
   Modal,
@@ -1058,6 +1059,8 @@ export function SettingsPage() {
 
   const editingEntry = editingKey && snapshot ? snapshot.settings[editingKey] : null
 
+  const [searchQuery, setSearchQuery] = useState('')
+
   // Tab list — backend categories that have at least one entry, plus an
   // "Admin server" tab for the local Node knobs.
   const tabs = useMemo(() => {
@@ -1067,6 +1070,25 @@ export function SettingsPage() {
       { id: 'admin', label: 'Admin server' },
     ]
   }, [groups])
+
+  // Cross-category search results — flat list of matching settings grouped by category.
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return []
+    return Object.entries(CATEGORY_LABELS)
+      .filter(([catId]) => groups[catId]?.length)
+      .map(([catId, catLabel]) => ({
+        catId,
+        catLabel,
+        entries: (groups[catId] ?? []).filter(([key, entry]) =>
+          key.toLowerCase().includes(q) ||
+          titleFor(key).toLowerCase().includes(q) ||
+          (entry.description ?? '').toLowerCase().includes(q) ||
+          (entry.env_name ?? '').toLowerCase().includes(q)
+        ),
+      }))
+      .filter(({ entries }) => entries.length > 0)
+  }, [searchQuery, groups])
 
   if (loading) return <LoadingState message="Loading settings…" />
   if (error) return <ErrorState title="Failed to load settings" message={error} onRetry={load} />
@@ -1113,12 +1135,50 @@ export function SettingsPage() {
         title="Settings"
         description="Backend configuration + admin-server credentials. Backend values resolve as tenant → DB override → env. Secrets are write-only. Hover the help icon on any row for full details."
       />
+      {/* Search bar — filters across all categories without changing tabs */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 max-w-sm">
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search settings…"
+          />
+        </div>
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="text-xs text-theme-muted hover:text-theme-primary transition-colors whitespace-nowrap"
+          >
+            Clear
+          </button>
+        )}
+      </div>
       {pendingRestartKeys.length > 0 && (
         <RestartBanner
           pendingKeys={pendingRestartKeys}
           onRestarted={() => void load()}
         />
       )}
+      {searchQuery ? (
+        <div className="space-y-6">
+          {searchResults.length === 0 ? (
+            <div className="text-center py-16 text-theme-muted text-sm">
+              No settings match &ldquo;{searchQuery}&rdquo;
+            </div>
+          ) : (
+            searchResults.map(({ catId, catLabel, entries }) => (
+              <div key={catId}>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-theme-muted mb-3">
+                  {catLabel}
+                </p>
+                <CategoryTab entries={entries} onEdit={openEditorInline} onRevert={onRevert} />
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        <>
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
       {tabs.map((tab) => (
         <TabPanel key={tab.id} isActive={activeTab === tab.id}>
@@ -1167,6 +1227,8 @@ export function SettingsPage() {
           )}
         </TabPanel>
       ))}
+        </>
+      )}
       {editingEntry && editingKey && (
         <SettingEditor
           settingKey={editingKey}
