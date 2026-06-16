@@ -468,17 +468,22 @@ export function SubjectsPage() {
               the top of <main>'s scroll viewport so column labels stay
               visible while the user scrolls past row 30. */}
           <div className="hidden md:block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* table-fixed forces the browser to respect column widths set on
+                <th> elements. Without it the Subject ID column (long mono IDs)
+                pushes the table wider than its container and triggers the
+                overflow-x-auto scrollbar. The Subject ID column gets all
+                remaining space and truncates via the inner <Link truncate>. */}
+            <table className="w-full text-sm table-fixed">
               <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
                 <tr>
                   <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Subject ID</th>
-                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Tenant</th>
-                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Health</th>
-                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Memories</th>
-                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Episodes</th>
-                  <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Open</th>
-                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Last Activity</th>
-                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">7-day activity</th>
+                  <th className="w-28 text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Tenant</th>
+                  <th className="w-28 text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Health</th>
+                  <th className="w-20 text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Memories</th>
+                  <th className="w-20 text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Episodes</th>
+                  <th className="w-14 text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Open</th>
+                  <th className="w-36 text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Last Activity</th>
+                  <th className="w-24 text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">7-day activity</th>
                   <th className="w-10 px-2 py-3" aria-label="Row actions"></th>
                 </tr>
               </thead>
@@ -488,7 +493,7 @@ export function SubjectsPage() {
                     key={subject.subject_id}
                     className="border-b border-theme-border/50 last:border-b-0 hover:bg-[var(--theme-surface-1)]/50 transition-colors"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 max-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Link
                           to={`/subjects/${encodeURIComponent(subject.subject_id)}`}

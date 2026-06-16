@@ -27,6 +27,10 @@ import { encryptSwmem } from '../lib/swmem'
  *     more actions later without growing the table.
  *   * Standard pattern users recognize from Notion, Linear, GitHub, etc.
  *
+ * Dropdown uses `position: fixed` so it escapes the table's `overflow-x-auto`
+ * stacking context that would otherwise clip an `absolute`-positioned child.
+ * Position is recalculated from the button's bounding rect on every open.
+ *
  * Currently exposes:
  *   * Clone   — POST /admin/memory/clone
  *   * Export  — POST /admin/memory/export then encrypt locally to .swmem
@@ -40,13 +44,20 @@ interface SubjectRowActionsProps {
 export function SubjectRowActions({ subjectId, onCloneComplete }: SubjectRowActionsProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [modal, setModal] = useState<null | 'clone' | 'export'>(null)
-  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Close on outside click / Escape so the dropdown behaves like a real menu.
   useEffect(() => {
     if (!menuOpen) return
     const onDown = (e: MouseEvent) => {
-      if (!wrapperRef.current?.contains(e.target as Node)) setMenuOpen(false)
+      if (
+        !btnRef.current?.contains(e.target as Node) &&
+        !dropdownRef.current?.contains(e.target as Node)
+      ) {
+        setMenuOpen(false)
+      }
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMenuOpen(false)
@@ -59,6 +70,21 @@ export function SubjectRowActions({ subjectId, onCloneComplete }: SubjectRowActi
     }
   }, [menuOpen])
 
+  const toggleMenu = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (menuOpen) {
+      setMenuOpen(false)
+    } else {
+      const rect = btnRef.current?.getBoundingClientRect()
+      if (rect) {
+        // Position relative to viewport so the dropdown escapes any
+        // overflow-clipping ancestor (e.g. the table's overflow-x-auto wrapper).
+        setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+      }
+      setMenuOpen(true)
+    }
+  }
+
   const choose = (action: 'clone' | 'export') => {
     setMenuOpen(false)
     setModal(action)
@@ -66,33 +92,31 @@ export function SubjectRowActions({ subjectId, onCloneComplete }: SubjectRowActi
 
   return (
     <>
-      <div ref={wrapperRef} className="relative inline-block">
-        <IconButton
-          aria-label={`Open subject actions for ${subjectId}`}
-          icon={<MoreVertical />}
-          variant="ghost"
-          size="xs"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={(e) => {
-            e.stopPropagation()
-            setMenuOpen((v) => !v)
-          }}
-        />
-        {menuOpen && (
-          <div
-            role="menu"
-            className="absolute right-0 top-full mt-1 z-20 min-w-[180px] rounded-lg border border-theme-border bg-[var(--theme-card-bg)] shadow-lg py-1"
-          >
-            <MenuItem onClick={() => choose('clone')} icon={<CopyPlus className="h-3.5 w-3.5" aria-hidden="true" />}>
-              Clone subject
-            </MenuItem>
-            <MenuItem onClick={() => choose('export')} icon={<Download className="h-3.5 w-3.5" aria-hidden="true" />}>
-              Export as .swmem
-            </MenuItem>
-          </div>
-        )}
-      </div>
+      <IconButton
+        ref={btnRef}
+        aria-label={`Open subject actions for ${subjectId}`}
+        icon={<MoreVertical className="h-3 w-3" />}
+        variant="ghost"
+        size="xs"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={toggleMenu}
+      />
+      {menuOpen && menuPos && (
+        <div
+          ref={dropdownRef}
+          role="menu"
+          style={{ top: menuPos.top, right: menuPos.right }}
+          className="fixed z-50 min-w-[180px] rounded-lg border border-theme-border bg-[var(--theme-card-bg)] shadow-lg py-1"
+        >
+          <MenuItem onClick={() => choose('clone')} icon={<CopyPlus className="h-3.5 w-3.5" aria-hidden="true" />}>
+            Clone subject
+          </MenuItem>
+          <MenuItem onClick={() => choose('export')} icon={<Download className="h-3.5 w-3.5" aria-hidden="true" />}>
+            Export as .swmem
+          </MenuItem>
+        </div>
+      )}
       <Modal
         open={modal === 'clone'}
         onClose={() => setModal(null)}
