@@ -1832,3 +1832,113 @@ export async function replayReceipt(
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+// ─── Retrieval Simulator ─────────────────────────────────────────────────────
+
+export interface RetrievalSimulateItem {
+  rank: number
+  memory_id: string
+  kind: string
+  content: string
+  summary: string
+  confidence: number
+  status: string
+  created_at: string
+  similarity: number
+  cosine_distance: number
+  estimated_tokens: number
+  within_budget: boolean
+}
+
+export interface RetrievalSimulateResponse {
+  results: RetrievalSimulateItem[]
+  query: string
+  tokens_used: number
+  token_budget: number
+  embedding_available: boolean
+  error: string | null
+}
+
+export async function simulateRetrieval(
+  subjectId: string,
+  query: string,
+  opts: { limit?: number; tokenBudget?: number; tenantId?: string } = {},
+): Promise<RetrievalSimulateResponse> {
+  const params = new URLSearchParams({ query })
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.tokenBudget) params.set('token_budget', String(opts.tokenBudget))
+  if (opts.tenantId) params.set('tenant_id', opts.tenantId)
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/retrieval-simulate?${params}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Subject Activity ────────────────────────────────────────────────────────
+
+export interface ActivityDay {
+  date: string
+  episode_count: number
+  memory_count: number
+}
+
+export interface ActivityResponse {
+  days: ActivityDay[]
+  subject_id: string
+  window_days: number
+}
+
+export async function fetchSubjectActivity(
+  subjectId: string,
+  opts: { days?: number; tenantId?: string } = {},
+): Promise<ActivityResponse> {
+  const params = new URLSearchParams()
+  if (opts.days) params.set('days', String(opts.days))
+  if (opts.tenantId) params.set('tenant_id', opts.tenantId)
+  const qs = params.toString()
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/activity${qs ? `?${qs}` : ''}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// ─── Memory Provenance ───────────────────────────────────────────────────────
+
+export interface ProvenanceEpisode {
+  id: string
+  source: string
+  type: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface ProvenanceMemory {
+  id: string
+  kind: string
+  content: string
+  summary: string
+  confidence: number
+  status: string
+  created_at: string
+  source_episode_ids: string[]
+}
+
+export interface ProvenanceResponse {
+  memory: ProvenanceMemory
+  source_episodes: ProvenanceEpisode[]
+  sibling_memories: ProvenanceMemory[]
+}
+
+export async function fetchMemoryProvenance(
+  subjectId: string,
+  memoryId: string,
+  opts: { tenantId?: string } = {},
+): Promise<ProvenanceResponse> {
+  const params = opts.tenantId
+    ? `?tenant_id=${encodeURIComponent(opts.tenantId)}`
+    : ''
+  const path = `/admin/subjects/${encodeURIComponent(subjectId)}/memories/${encodeURIComponent(memoryId)}/provenance${params}`
+  const res = await fetch(adminUrl(path))
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

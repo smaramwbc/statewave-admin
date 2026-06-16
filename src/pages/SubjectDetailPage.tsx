@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { AlertTriangle, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Trash2, X, Search, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   Tabs,
@@ -28,16 +28,20 @@ import {
   fetchSubjectEpisodes,
   fetchSubjectSessions,
   deleteSubject,
+  simulateRetrieval,
+  fetchSubjectActivity,
   type SubjectDetailResponse,
   type MemoryListItem,
   type EpisodeListItem,
   type SessionListItem,
+  type RetrievalSimulateResponse,
+  type ActivityResponse,
 } from '../lib/api'
 
 const PAGE_SIZE = 50
 
 // Valid tab values for URL persistence
-const VALID_TABS = ['overview', 'memories', 'episodes', 'sessions'] as const
+const VALID_TABS = ['overview', 'memories', 'episodes', 'sessions', 'retrieval'] as const
 type TabId = (typeof VALID_TABS)[number]
 
 export function SubjectDetailPage() {
@@ -205,6 +209,7 @@ export function SubjectDetailPage() {
     { id: 'memories', label: 'Memories', count: detail.summary.memory_count },
     { id: 'episodes', label: 'Episodes', count: detail.summary.episode_count },
     { id: 'sessions', label: 'Sessions', count: detail.summary.session_count },
+    { id: 'retrieval', label: 'Retrieval' },
   ]
 
   return (
@@ -328,6 +333,12 @@ export function SubjectDetailPage() {
           onViewEpisodesForSession={handleViewEpisodesForSession}
         />
       </TabPanel>
+      <TabPanel isActive={activeTab === 'retrieval'}>
+        <RetrievalTab
+          subjectId={detail.subject_id}
+          tenantId={detail.tenant_id}
+        />
+      </TabPanel>
 
       <Modal
         open={showDeleteModal}
@@ -424,6 +435,9 @@ function OverviewTab({ detail }: { detail: SubjectDetailResponse }) {
           sub={detail.health?.state}
         />
       </div>
+
+      {/* Activity Heatmap */}
+      <ActivityHeatmap subjectId={detail.subject_id} />
 
       {/* Health Factors */}
       {detail.health && detail.health.factors.length > 0 && (
@@ -541,6 +555,7 @@ function MemoriesTab({
   const [detailMemory, setDetailMemory] = useState<MemoryListItem | null>(null)
   const [sourceEpisodesMemory, setSourceEpisodesMemory] = useState<MemoryListItem | null>(null)
   const [selectedEpisode, setSelectedEpisode] = useState<EpisodeListItem | null>(null)
+  const [provenanceMemory, setProvenanceMemory] = useState<MemoryListItem | null>(null)
   // Navigation context
   const [navigationContext, setNavigationContext] = useState<string | null>(null)
 
@@ -722,6 +737,15 @@ function MemoriesTab({
                   {memory.source_episode_ids.length} source episode{memory.source_episode_ids.length !== 1 ? 's' : ''} →
                 </button>
               )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setProvenanceMemory(memory)
+                }}
+                className="text-violet-400 hover:text-violet-300 underline underline-offset-2 decoration-dashed cursor-pointer"
+              >
+                Provenance →
+              </button>
             </div>
           </div>
         ))}
@@ -778,6 +802,16 @@ function MemoriesTab({
           setDetailMemory(memory)
         }}
       />
+
+      {/* Provenance Modal */}
+      {provenanceMemory && (
+        <ProvenanceModal
+          subjectId={subjectId}
+          tenantId={tenantId}
+          memoryId={provenanceMemory.id}
+          onClose={() => setProvenanceMemory(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1251,4 +1285,415 @@ function formatDuration(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`
   return `${(seconds / 3600).toFixed(1)}h`
+}
+
+// ─── Provenance Modal ─────────────────────────────────────────────────────────
+
+function ProvenanceModal({
+  subjectId,
+  tenantId,
+  memoryId,
+  onClose,
+}: {
+  subjectId: string
+  tenantId: string | null
+  memoryId: string
+  onClose: () => void
+}) {
+  const [data, setData] = useState<import('../lib/api').ProvenanceResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    import('../lib/api').then(({ fetchMemoryProvenance }) =>
+      fetchMemoryProvenance(subjectId, memoryId, { tenantId: tenantId ?? undefined })
+    ).then((r) => {
+      if (!cancelled) { setData(r); setLoading(false) }
+    }).catch((e) => {
+      if (!cancelled) { setError(e instanceof Error ? e.message : 'Failed to load provenance'); setLoading(false) }
+    })
+    return () => { cancelled = true }
+  }, [subjectId, memoryId, tenantId])
+
+  return (
+    <Modal open onClose={onClose} title="Memory Provenance">
+      {loading && <LoadingState message="Loading provenance…" />}
+      {error && (
+        <div className="text-sm text-red-400 p-4">{error}</div>
+      )}
+      {data && (
+        <div className="space-y-6 text-sm">
+          {/* The memory itself */}
+          <section>
+            <h4 className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">
+              Memory
+            </h4>
+            <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <Badge variant="muted">{data.memory.kind}</Badge>
+                <span className="text-[10px] text-theme-muted font-mono">{data.memory.id.slice(0, 8)}</span>
+                <span className="text-[10px] text-theme-muted ml-auto">
+                  conf {(data.memory.confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+              <p className="text-theme-primary leading-relaxed">{data.memory.content}</p>
+              {data.memory.summary && data.memory.summary !== data.memory.content && (
+                <p className="text-xs text-theme-muted italic">{data.memory.summary}</p>
+              )}
+            </div>
+          </section>
+
+          {/* Source episodes */}
+          <section>
+            <h4 className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">
+              Compiled from {data.source_episodes.length} episode{data.source_episodes.length !== 1 ? 's' : ''}
+            </h4>
+            {data.source_episodes.length === 0 ? (
+              <p className="text-xs text-theme-muted">No source episodes recorded (pre-v0.9 memory).</p>
+            ) : (
+              <div className="space-y-2">
+                {data.source_episodes.map((ep) => {
+                  const text =
+                    typeof ep.payload.text === 'string'
+                      ? ep.payload.text
+                      : typeof ep.payload.content === 'string'
+                      ? ep.payload.content
+                      : JSON.stringify(ep.payload).slice(0, 200)
+                  return (
+                    <div key={ep.id} className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)] p-3 space-y-1">
+                      <div className="flex items-center gap-2 text-[10px] text-theme-muted">
+                        <span className="font-mono">{ep.id.slice(0, 8)}</span>
+                        <Badge variant="muted">{ep.type}</Badge>
+                        <span className="ml-auto">{new Date(ep.created_at).toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs text-theme-secondary line-clamp-3">{text}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Sibling memories */}
+          {data.sibling_memories.length > 0 && (
+            <section>
+              <h4 className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">
+                {data.sibling_memories.length} sibling memor{data.sibling_memories.length !== 1 ? 'ies' : 'y'} from same source
+              </h4>
+              <div className="space-y-2">
+                {data.sibling_memories.map((sib) => (
+                  <div key={sib.id} className="rounded-lg border border-theme-border/60 bg-[var(--theme-card-bg)] p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="muted">{sib.kind}</Badge>
+                      <span className="text-[10px] text-theme-muted font-mono">{sib.id.slice(0, 8)}</span>
+                      {sib.status !== 'active' && <Badge variant="warning">{sib.status}</Badge>}
+                    </div>
+                    <p className="text-xs text-theme-secondary line-clamp-2">{sib.content}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ─── Activity Heatmap ─────────────────────────────────────────────────────────
+
+function ActivityHeatmap({ subjectId }: { subjectId: string }) {
+  const [activity, setActivity] = useState<ActivityResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchSubjectActivity(subjectId, { days: 91 })
+      .then((r) => { if (!cancelled) setActivity(r) })
+      .catch(() => { /* non-fatal — Overview still renders */ })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [subjectId])
+
+  if (loading) {
+    return (
+      <section>
+        <h3 className="text-sm font-medium text-theme-primary mb-3">Activity (90 days)</h3>
+        <div className="h-20 rounded-xl border border-theme-border bg-[var(--theme-card-bg)] animate-pulse" />
+      </section>
+    )
+  }
+
+  if (!activity || !Array.isArray(activity.days) || activity.days.length === 0) return null
+
+  const maxCount = Math.max(...activity.days.map((d) => d.episode_count), 1)
+
+  function cellColor(count: number): string {
+    if (count === 0) return 'bg-theme-surface-1 opacity-60'
+    const pct = count / maxCount
+    if (pct < 0.2) return 'bg-emerald-500/20'
+    if (pct < 0.4) return 'bg-emerald-500/40'
+    if (pct < 0.7) return 'bg-emerald-500/65'
+    return 'bg-emerald-500'
+  }
+
+  // Group days into week columns (Sunday-first so each column is a week)
+  // Pad the start so column 0 starts on a Sunday
+  const days = activity.days
+  const firstDay = new Date(days[0].date + 'T00:00:00Z')
+  const dowOffset = firstDay.getUTCDay() // 0=Sun
+  const padded = Array(dowOffset).fill(null).concat(days)
+  const weeks: (typeof days[number] | null)[][] = []
+  for (let i = 0; i < padded.length; i += 7) {
+    weeks.push(padded.slice(i, i + 7))
+  }
+
+  const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+
+  return (
+    <section>
+      <h3 className="text-sm font-medium text-theme-primary mb-3">Activity — last 90 days</h3>
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4 overflow-x-auto">
+        <div className="flex gap-1.5 min-w-max">
+          {/* Day-of-week labels */}
+          <div className="flex flex-col gap-1 mr-1 justify-center">
+            {dayLabels.map((d, i) => (
+              <span key={i} className="text-[9px] text-theme-muted w-3 text-center leading-3">{d}</span>
+            ))}
+          </div>
+          {weeks.map((week, wi) => (
+            <div key={wi} className="flex flex-col gap-1">
+              {week.map((day, di) =>
+                day === null ? (
+                  <div key={di} className="w-3 h-3" />
+                ) : (
+                  <div
+                    key={di}
+                    title={`${day.date}: ${day.episode_count} episode${day.episode_count !== 1 ? 's' : ''}${day.memory_count > 0 ? `, ${day.memory_count} memories` : ''}`}
+                    className={`w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${cellColor(day.episode_count)}`}
+                  />
+                )
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <span className="text-[10px] text-theme-muted">Less</span>
+          {[0, 0.15, 0.35, 0.65, 1].map((pct, i) => (
+            <div
+              key={i}
+              className={`w-3 h-3 rounded-[2px] ${cellColor(Math.round(pct * maxCount))}`}
+            />
+          ))}
+          <span className="text-[10px] text-theme-muted">More</span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ─── Retrieval Simulator Tab ──────────────────────────────────────────────────
+
+function RetrievalTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
+  const [query, setQuery] = useState('')
+  const [tokenBudget, setTokenBudget] = useState(2000)
+  const [limit, setLimit] = useState(15)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<RetrievalSimulateResponse | null>(null)
+
+  async function run() {
+    if (!query.trim()) return
+    setLoading(true)
+    try {
+      const res = await simulateRetrieval(subjectId, query.trim(), {
+        limit,
+        tokenBudget,
+        tenantId: tenantId ?? undefined,
+      })
+      setResult(res)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Retrieval simulation failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      run()
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Explainer */}
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+        <div className="flex gap-3 items-start">
+          <Zap className="w-4 h-4 text-violet-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-theme-primary">Retrieval Simulator</p>
+            <p className="text-xs text-theme-muted mt-0.5">
+              Enter any query to see which memories would be recalled — ranked by semantic
+              similarity — and whether each one fits inside your token budget. Useful for
+              debugging &ldquo;why didn&apos;t the AI remember X?&rdquo;
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Query controls */}
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4 space-y-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="What does this user prefer for breakfast?"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary placeholder:text-theme-muted focus:outline-none focus:border-violet-500/50"
+            />
+          </div>
+          <Button variant="primary" onClick={run} disabled={loading || !query.trim()}>
+            {loading ? 'Simulating…' : 'Simulate'}
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap gap-4 text-xs text-theme-muted items-center">
+          <label className="flex items-center gap-2">
+            <span className="shrink-0">Token budget</span>
+            <input
+              type="number"
+              min={100}
+              max={32000}
+              step={100}
+              value={tokenBudget}
+              onChange={(e) => setTokenBudget(Math.max(100, Math.min(32000, Number(e.target.value))))}
+              className="w-20 px-2 py-1 rounded border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary text-xs focus:outline-none focus:border-violet-500/50 tabular-nums"
+            />
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="shrink-0">Max results</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={limit}
+              onChange={(e) => setLimit(Math.max(1, Math.min(50, Number(e.target.value))))}
+              className="w-16 px-2 py-1 rounded border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary text-xs focus:outline-none focus:border-violet-500/50 tabular-nums"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Results */}
+      {result && (
+        <div className="space-y-3">
+          {/* Summary bar */}
+          <div className="flex flex-wrap gap-3 items-center text-xs text-theme-muted">
+            {result.embedding_available ? (
+              <>
+                <span>
+                  <strong className="text-theme-primary">{result.results.length}</strong>{' '}
+                  result{result.results.length !== 1 ? 's' : ''} for{' '}
+                  <em>&ldquo;{result.query}&rdquo;</em>
+                </span>
+                <span className="text-theme-border">|</span>
+                <span>
+                  <strong className="text-theme-primary tabular-nums">
+                    ~{result.tokens_used.toLocaleString()}
+                  </strong>{' '}
+                  / {result.token_budget.toLocaleString()} tokens used
+                </span>
+                <span className="text-theme-border">|</span>
+                <span>
+                  {result.results.filter((r) => r.within_budget).length} within budget,{' '}
+                  {result.results.filter((r) => !r.within_budget).length} truncated
+                </span>
+              </>
+            ) : (
+              <div className="w-full rounded-lg p-3 bg-amber-500/5 border border-amber-500/20 text-amber-400">
+                {result.error}
+              </div>
+            )}
+          </div>
+
+          {result.embedding_available && result.results.length === 0 && (
+            <div className="text-sm text-theme-muted text-center py-10">
+              No active memories with embeddings found for this subject.
+            </div>
+          )}
+
+          {result.results.map((item) => (
+            <div
+              key={item.memory_id}
+              className={`rounded-xl border p-4 transition-colors ${
+                item.within_budget
+                  ? 'border-theme-border bg-[var(--theme-card-bg)]'
+                  : 'border-theme-border/40 bg-[var(--theme-card-bg)] opacity-50'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {/* Rank + similarity bar */}
+                <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
+                  <span className="text-[10px] font-semibold text-theme-muted tabular-nums w-5 text-center">
+                    #{item.rank}
+                  </span>
+                  <div className="w-1.5 rounded-full bg-theme-surface-1 overflow-hidden" style={{ height: '40px' }}>
+                    <div
+                      className="w-full rounded-full bg-violet-500 transition-all"
+                      style={{ height: `${Math.round(item.similarity * 100)}%`, marginTop: `${100 - Math.round(item.similarity * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-theme-muted tabular-nums">
+                    {(item.similarity * 100).toFixed(0)}%
+                  </span>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="muted">{item.kind}</Badge>
+                    {!item.within_budget && (
+                      <Badge variant="warning">truncated</Badge>
+                    )}
+                    <span className="text-[10px] text-theme-muted font-mono">
+                      ~{item.estimated_tokens} tokens
+                    </span>
+                    <span className="text-[10px] text-theme-muted ml-auto">
+                      {new Date(item.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-theme-primary leading-relaxed line-clamp-3">
+                    {item.content}
+                  </p>
+                  {item.summary && item.summary !== item.content && (
+                    <p className="text-xs text-theme-muted italic line-clamp-1">{item.summary}</p>
+                  )}
+                  {/* Similarity score bar (horizontal) */}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <div className="flex-1 h-1 rounded-full bg-theme-surface-1 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-violet-500/70 transition-all"
+                        style={{ width: `${Math.round(item.similarity * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-theme-muted tabular-nums w-10 text-right">
+                      {item.similarity.toFixed(3)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }

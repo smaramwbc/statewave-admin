@@ -17,10 +17,12 @@ import {
   fetchTenants,
   previewBulkDelete,
   commitBulkDelete,
+  fetchSubjectActivity,
   type SubjectListItem,
   type SubjectListParams,
   type BulkDeletePreview,
   type BulkDeleteResult,
+  type ActivityDay,
 } from '../lib/api'
 import { MemoryActionsDrawer } from '../components/MemoryActionsDrawer'
 import { SubjectRowActions } from '../components/SubjectRowActions'
@@ -466,6 +468,7 @@ export function SubjectsPage() {
                   <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Episodes</th>
                   <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Open</th>
                   <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Last Activity</th>
+                  <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">7-day activity</th>
                   <th className="w-10 px-2 py-3" aria-label="Row actions"></th>
                 </tr>
               </thead>
@@ -519,6 +522,9 @@ export function SubjectsPage() {
                       {subject.last_episode_at
                         ? new Date(subject.last_episode_at).toLocaleString()
                         : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <MiniActivityHeatmap subjectId={subject.subject_id} />
                     </td>
                     <td className="px-2 py-2 text-right">
                       <SubjectRowActions
@@ -833,5 +839,58 @@ export function SubjectsPage() {
       />
     </div>
     </PullToRefresh>
+  )
+}
+
+// ─── Mini Activity Heatmap ────────────────────────────────────────────────────
+// Shows 7 cells (1 per day, today on the right) colored by episode count.
+// Lazy-loaded per row — fires on mount, non-blocking.
+
+function MiniActivityHeatmap({ subjectId }: { subjectId: string }) {
+  const [days, setDays] = useState<ActivityDay[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchSubjectActivity(subjectId, { days: 7 })
+      .then((r) => { if (!cancelled) setDays(r.days.slice(-7)) })
+      .catch(() => { if (!cancelled) setDays([]) })
+    return () => { cancelled = true }
+  }, [subjectId])
+
+  if (days === null) {
+    return (
+      <div className="flex gap-0.5">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="w-3 h-3 rounded-[2px] bg-theme-surface-1 animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (days.length === 0) {
+    return <span className="text-[10px] text-theme-muted">—</span>
+  }
+
+  const maxCount = Math.max(...days.map((d) => d.episode_count), 1)
+
+  function cellColor(count: number): string {
+    if (count === 0) return 'bg-[var(--theme-surface-1)] opacity-50'
+    const pct = count / maxCount
+    if (pct < 0.25) return 'bg-emerald-500/25'
+    if (pct < 0.5) return 'bg-emerald-500/50'
+    if (pct < 0.75) return 'bg-emerald-500/75'
+    return 'bg-emerald-500'
+  }
+
+  return (
+    <div className="flex gap-0.5 items-center">
+      {days.map((d) => (
+        <div
+          key={d.date}
+          title={`${d.date}: ${d.episode_count} ep${d.episode_count !== 1 ? 's' : ''}`}
+          className={`w-3 h-3 rounded-[2px] cursor-default ${cellColor(d.episode_count)}`}
+        />
+      ))}
+    </div>
   )
 }
