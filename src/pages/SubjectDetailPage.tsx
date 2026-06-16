@@ -1079,7 +1079,7 @@ function EpisodesTab({
               <summary className="text-xs text-theme-muted cursor-pointer hover:text-theme-secondary">
                 View payload
               </summary>
-              <pre className="mt-2 p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary overflow-x-auto">
+              <pre className="mt-2 p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary whitespace-pre-wrap break-words">
                 {JSON.stringify(episode.payload, null, 2)}
               </pre>
             </details>

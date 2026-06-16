@@ -21,7 +21,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Lock, LockOpen, Server } from 'lucide-react'
-import { Badge } from './ui'
+import { Badge, Skeleton } from './ui'
 import {
   fetchBackendConnectionInfo,
   fetchProxyInfo,
@@ -60,7 +60,28 @@ export function ConnectionInfoCard() {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-4 animate-pulse h-24" />
+      <div
+        role="status"
+        aria-label="Loading connection info"
+        aria-busy="true"
+        className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-4"
+      >
+        {/* Header row: icon + title + badge */}
+        <div className="flex items-center gap-2 mb-3">
+          <Skeleton className="w-4 h-4 rounded" />
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-5 w-14 rounded-full ml-1" />
+        </div>
+        {/* 4-column grid mirroring the actual content */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Skeleton className="h-2.5 w-16" />
+              <Skeleton className="h-3.5 w-24" />
+            </div>
+          ))}
+        </div>
+      </div>
     )
   }
   if (!backend && !proxy) {

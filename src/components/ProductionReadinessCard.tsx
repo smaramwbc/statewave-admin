@@ -35,7 +35,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { AlertOctagon, AlertTriangle, Info, ShieldCheck, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
-import { Button, Badge, CopyableMono } from './ui'
+import { Button, Badge, CopyableMono, Skeleton } from './ui'
 import {
   fetchBackendReadiness,
   fetchAdminReadiness,
@@ -295,7 +295,23 @@ export function ProductionReadinessCard() {
   }
 
   if (issues === null) {
-    return <div className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-4 animate-pulse h-20" />
+    return (
+      <div
+        role="status"
+        aria-label="Loading readiness check"
+        aria-busy="true"
+        className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-4"
+      >
+        {/* Mirror: icon + title + severity-count badges + chevron */}
+        <div className="flex items-center gap-2">
+          <Skeleton className="w-4 h-4 rounded" />
+          <Skeleton className="h-3 w-36" />
+          <Skeleton className="h-5 w-12 rounded-full ml-1" />
+          <Skeleton className="h-5 w-12 rounded-full" />
+          <Skeleton className="h-4 w-4 rounded ml-auto" />
+        </div>
+      </div>
+    )
   }
 
   // Zero issues → tiny green chip, not a whole card. Keeps the

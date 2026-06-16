@@ -186,7 +186,7 @@ describe('MemoryDetailModal sensitivity labels editor', () => {
         />
       </ThemeProvider>,
     )
-    expect(screen.getByText(/untagged.*default-allow/i)).toBeInTheDocument()
+    expect(screen.getByText(/untagged.*default allow/i)).toBeInTheDocument()
   })
 
   it('PATCHes the labels endpoint on save', async () => {
@@ -210,6 +210,8 @@ describe('MemoryDetailModal sensitivity labels editor', () => {
         <MemoryDetailModal memory={SAMPLE_MEMORY} onClose={() => {}} />
       </ThemeProvider>,
     )
+    // Labels editor is behind an Edit button in the new modal design
+    fireEvent.click(screen.getByText('Edit'))
     const input = screen.getByLabelText(/Comma-separated sensitivity labels/i)
     fireEvent.change(input, { target: { value: 'pii, financial' } })
     fireEvent.click(screen.getByText('Save'))

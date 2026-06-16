@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { Copy, Check, ExternalLink, Tag, Clock, Shield, FileText } from 'lucide-react'
 import { Modal, Badge, Button } from './ui'
 import { MemoryEvolutionSection } from './MemoryEvolutionSection'
 import { setMemoryLabels } from '../lib/api'
@@ -9,13 +10,56 @@ interface MemoryDetailModalProps {
   memory: MemoryListItem | null
   subjectId?: string
   tenantId?: string | null
-  /** Optional context label showing where the user navigated from */
   fromContext?: string
   onClose: () => void
   onViewSourceEpisodes?: (memory: MemoryListItem) => void
   onNavigateToMemory?: (memory: MemoryListItem) => void
-  /** Fired after a successful label edit so the parent can refetch. */
   onMemoryUpdated?: (updated: MemoryListItem) => void
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function copy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      if (timer.current) clearTimeout(timer.current)
+      timer.current = setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <button
+      onClick={copy}
+      className="ml-1.5 inline-flex items-center text-theme-muted hover:text-theme-secondary transition-colors"
+      title="Copy to clipboard"
+    >
+      {copied
+        ? <Check className="w-3 h-3 text-emerald-400" />
+        : <Copy className="w-3 h-3" />}
+    </button>
+  )
+}
+
+function ConfidenceMeter({ value }: { value: number }) {
+  const pct = Math.round(value * 100)
+  const color = pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-red-400'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 rounded-full bg-[var(--theme-surface-1)] overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs font-medium tabular-nums text-theme-secondary w-8 text-right">{pct}%</span>
+    </div>
+  )
+}
+
+function SectionHeading({ icon: Icon, children }: { icon: React.ElementType; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-2">
+      <Icon className="w-3.5 h-3.5 text-theme-muted" />
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-theme-muted">{children}</span>
+    </div>
+  )
 }
 
 export function MemoryDetailModal({
@@ -28,22 +72,19 @@ export function MemoryDetailModal({
   onNavigateToMemory,
   onMemoryUpdated,
 }: MemoryDetailModalProps) {
-  // Local-edit state for sensitivity labels. The input is a single
-  // comma-separated string for entry ergonomics; the server normalizes
-  // (dedup + lowercase + trim) so the canonical set comes back in the
-  // response.
   const [labelInput, setLabelInput] = useState('')
   const [savingLabels, setSavingLabels] = useState(false)
   const [currentLabels, setCurrentLabels] = useState<string[]>([])
+  const [editingLabels, setEditingLabels] = useState(false)
 
-  // Reset local state when the modal opens onto a different memory so
-  // stale labels from a prior memory don't leak across openings.
   useEffect(() => {
     const labels = memory?.sensitivity_labels ?? []
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentLabels(labels)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLabelInput(labels.join(', '))
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEditingLabels(false)
   }, [memory?.id])
 
   if (!memory) return null
@@ -51,13 +92,11 @@ export function MemoryDetailModal({
   const saveLabels = async () => {
     setSavingLabels(true)
     try {
-      const parsed = labelInput
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
+      const parsed = labelInput.split(',').map((s) => s.trim()).filter(Boolean)
       const updated = await setMemoryLabels(memory.id, parsed, tenantId ?? undefined)
       setCurrentLabels(updated.sensitivity_labels ?? [])
       setLabelInput((updated.sensitivity_labels ?? []).join(', '))
+      setEditingLabels(false)
       toast.success(
         (updated.sensitivity_labels ?? []).length === 0
           ? 'Labels cleared'
@@ -65,172 +104,166 @@ export function MemoryDetailModal({
       )
       onMemoryUpdated?.(updated)
     } catch (e) {
-      toast.error('Failed to save labels', {
-        description: e instanceof Error ? e.message : String(e),
-      })
+      toast.error('Failed to save labels', { description: e instanceof Error ? e.message : String(e) })
     } finally {
       setSavingLabels(false)
     }
   }
+
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
 
   return (
     <Modal
       open={!!memory}
       onClose={onClose}
       title="Memory Details"
-      // The "Viewing from" navigation context used to render as an
-      // awkward boxed line right under the title. We promote it into
-      // the modal's `description` slot so it renders inline with the
-      // header where breadcrumb / context typically lives — same
-      // surface a Mac sheet uses for "From: …". This keeps the body
-      // free of meta chrome and the header's information density
-      // honest.
-      description={fromContext ? `Viewing from ${fromContext}` : undefined}
+      size="xl"
+      description={fromContext ? `From ${fromContext}` : undefined}
     >
-      <div className="space-y-5">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={memory.status === 'active' ? 'success' : 'muted'}>
-              {memory.kind}
-            </Badge>
-            {memory.status === 'superseded' && (
-              <Badge variant="warning">superseded</Badge>
-            )}
+      {/* ── Top status bar ───────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 pb-4 mb-4 border-b border-theme-border">
+        <Badge variant={memory.status === 'active' ? 'success' : 'muted'}>
+          {memory.kind.replace(/_/g, ' ')}
+        </Badge>
+        {memory.status === 'superseded' && <Badge variant="warning">superseded</Badge>}
+        <div className="ml-auto flex items-center gap-3 min-w-[160px]">
+          <span className="text-[10px] text-theme-muted uppercase tracking-wide">Confidence</span>
+          <div className="flex-1 min-w-[100px]">
+            <ConfidenceMeter value={memory.confidence} />
           </div>
-          <span className="text-xs text-theme-muted whitespace-nowrap">
-            Confidence: {(memory.confidence * 100).toFixed(0)}%
-          </span>
         </div>
+      </div>
 
-        {/* ID */}
-        <div>
-          <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-1">
-            Memory ID
-          </p>
-          <p className="text-xs font-mono text-theme-secondary break-all">{memory.id}</p>
-        </div>
+      {/* ── Two-column body ───────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Content */}
-        <div>
-          <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-2">
-            Content
-          </p>
-          <p className="text-sm text-theme-primary">{memory.content}</p>
-        </div>
+        {/* Left — primary content (2/3) */}
+        <div className="lg:col-span-2 space-y-5">
 
-        {/* Summary */}
-        {memory.summary && (
+          {/* Content */}
           <div>
-            <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-2">
-              Summary
+            <SectionHeading icon={FileText}>Content</SectionHeading>
+            <p className="text-sm text-theme-primary leading-relaxed rounded-lg bg-[var(--theme-surface-1)] px-4 py-3 border border-theme-border/50">
+              {memory.content}
             </p>
-            <p className="text-xs text-theme-secondary">{memory.summary}</p>
           </div>
-        )}
 
-        {/* Timestamps */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-1">
-              Valid From
-            </p>
-            <p className="text-xs text-theme-secondary">
-              {new Date(memory.valid_from).toLocaleString()}
-            </p>
-          </div>
-          {memory.valid_to && (
+          {/* Summary */}
+          {memory.summary && (
             <div>
-              <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-1">
-                Valid To
-              </p>
-              <p className="text-xs text-theme-secondary">
-                {new Date(memory.valid_to).toLocaleString()}
-              </p>
+              <SectionHeading icon={FileText}>Summary</SectionHeading>
+              <p className="text-sm text-theme-secondary leading-relaxed">{memory.summary}</p>
             </div>
+          )}
+
+          {/* Source episodes */}
+          {memory.source_episode_ids.length > 0 && onViewSourceEpisodes && (
+            <button
+              onClick={() => onViewSourceEpisodes(memory)}
+              className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent-light"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              View {memory.source_episode_ids.length} source episode{memory.source_episode_ids.length !== 1 ? 's' : ''}
+            </button>
           )}
         </div>
 
-        <div>
-          <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-1">
-            Created
-          </p>
-          <p className="text-xs text-theme-secondary">
-            {new Date(memory.created_at).toLocaleString()}
-          </p>
-        </div>
+        {/* Right — metadata sidebar (1/3) */}
+        <div className="space-y-5">
 
-        {/* Sensitivity labels (#50) — operator-supplied capability
-            tags that the policy layer reads to decide deny/redact/
-            allow per memory. The input is comma-separated for
-            ergonomics; the server canonicalizes (dedup + lowercase +
-            trim) before persisting so the on-the-wire vocabulary
-            stays stable regardless of operator typing. */}
-        <div className="pt-2 border-t border-theme-border/50">
-          <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-2">
-            Sensitivity labels
-          </p>
-          <div className="flex flex-wrap gap-1.5 mb-2 min-h-[1.25rem]">
-            {currentLabels.length === 0 ? (
-              <span className="text-xs text-theme-muted italic">
-                untagged — policy default-allow
+          {/* Memory ID */}
+          <div>
+            <SectionHeading icon={FileText}>Memory ID</SectionHeading>
+            <div className="flex items-start gap-1 rounded-lg bg-[var(--theme-surface-1)] px-3 py-2 border border-theme-border/50">
+              <span className="text-[11px] font-mono text-theme-secondary break-all leading-relaxed flex-1">
+                {memory.id}
               </span>
+              <CopyButton text={memory.id} />
+            </div>
+          </div>
+
+          {/* Timestamps */}
+          <div>
+            <SectionHeading icon={Clock}>Timestamps</SectionHeading>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between gap-2">
+                <span className="text-theme-muted shrink-0">Created</span>
+                <span className="text-theme-secondary text-right">{fmt(memory.created_at)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-theme-muted shrink-0">Valid from</span>
+                <span className="text-theme-secondary text-right">{fmt(memory.valid_from)}</span>
+              </div>
+              {memory.valid_to && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-theme-muted shrink-0">Valid to</span>
+                  <span className="text-theme-secondary text-right">{fmt(memory.valid_to)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Sensitivity labels */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Shield className="w-3.5 h-3.5 text-theme-muted" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-theme-muted flex-1">Labels</span>
+              {!editingLabels && (
+                <button
+                  onClick={() => setEditingLabels(true)}
+                  className="text-[10px] text-accent hover:text-accent-light"
+                >
+                  <Tag className="w-3 h-3 inline mr-0.5" />Edit
+                </button>
+              )}
+            </div>
+
+            {editingLabels ? (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={labelInput}
+                  onChange={(e) => setLabelInput(e.target.value)}
+                  placeholder="pii, financial, secret"
+                  autoFocus
+                  className="w-full text-xs px-2.5 py-2 rounded-lg border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary focus:outline-none focus:border-accent"
+                  disabled={savingLabels}
+                  aria-label="Comma-separated sensitivity labels"
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveLabels(); if (e.key === 'Escape') setEditingLabels(false) }}
+                />
+                <p className="text-[10px] text-theme-muted">Comma-separated · server deduplicates &amp; lowercases</p>
+                <div className="flex gap-2">
+                  <Button variant="primary" size="sm" onClick={saveLabels} loading={savingLabels}
+                    disabled={savingLabels || labelInput.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).sort().join(',') === currentLabels.slice().sort().join(',')}>
+                    Save
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => { setEditingLabels(false); setLabelInput(currentLabels.join(', ')) }}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
             ) : (
-              currentLabels.map((l) => (
-                <Badge key={l} variant="warning">
-                  {l}
-                </Badge>
-              ))
+              <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
+                {currentLabels.length === 0 ? (
+                  <span className="text-xs text-theme-muted italic">untagged — default allow</span>
+                ) : (
+                  currentLabels.map((l) => (
+                    <Badge key={l} variant="warning">{l}</Badge>
+                  ))
+                )}
+              </div>
             )}
           </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={labelInput}
-              onChange={(e) => setLabelInput(e.target.value)}
-              placeholder="pii, financial, secret"
-              className="flex-1 text-xs px-2 py-1.5 rounded-md border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary focus:outline-none focus:border-accent"
-              disabled={savingLabels}
-              aria-label="Comma-separated sensitivity labels"
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={saveLabels}
-              loading={savingLabels}
-              disabled={
-                savingLabels ||
-                labelInput
-                  .split(',')
-                  .map((s) => s.trim().toLowerCase())
-                  .filter(Boolean)
-                  .sort()
-                  .join(',') ===
-                  currentLabels.slice().sort().join(',')
-              }
-            >
-              Save
-            </Button>
-          </div>
-          <p className="text-[10px] text-theme-muted mt-1">
-            Comma-separated. Server normalizes (dedup, lowercase, trim).
-          </p>
         </div>
+      </div>
 
-        {/* Source Episodes Link */}
-        {memory.source_episode_ids.length > 0 && onViewSourceEpisodes && (
-          <div className="pt-2 border-t border-theme-border/50">
-            <button
-              onClick={() => onViewSourceEpisodes(memory)}
-              className="text-xs text-accent hover:text-accent-light underline underline-offset-2"
-            >
-              View {memory.source_episode_ids.length} source episode{memory.source_episode_ids.length !== 1 ? 's' : ''} →
-            </button>
-          </div>
-        )}
-
-        {/* Memory Evolution Section */}
-        {subjectId && (
+      {/* ── Memory Evolution — full width ─────────────────────────────────── */}
+      {subjectId && (
+        <div className="mt-6 pt-5 border-t border-theme-border">
           <MemoryEvolutionSection
             memoryId={memory.id}
             subjectId={subjectId}
@@ -238,8 +271,8 @@ export function MemoryDetailModal({
             currentStatus={memory.status}
             onMemoryClick={onNavigateToMemory}
           />
-        )}
-      </div>
+        </div>
+      )}
     </Modal>
   )
 }
