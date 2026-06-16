@@ -457,6 +457,109 @@ function createComprehensiveMock(options?: {
         }),
       } as Response)
     }
+    // Compiler trace endpoint
+    if (decoded.includes('/compiler-trace')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          memory_id: 'mem_001',
+          kind: 'profile_fact',
+          content: 'User prefers dark mode',
+          summary: '',
+          confidence: 0.9,
+          status: 'active',
+          created_at: '2026-01-15T10:00:00Z',
+          compiler: 'llm',
+          model: 'gpt-4o',
+          source_episode_count: 2,
+          reconstructed_input: [
+            { id: 'ep_001', source: 'api', type: 'chat.note', payload: { text: 'I like dark mode' }, created_at: '2026-01-14T10:00:00Z', text_preview: 'I like dark mode' },
+          ],
+        }),
+      } as Response)
+    }
+    // Conflict detector endpoint
+    if (decoded.includes('/conflicts')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          pairs: [],
+          total_memories_checked: 12,
+          embedding_available: false,
+          error: 'Conflict detection requires real embeddings.',
+        }),
+      } as Response)
+    }
+    // Memory timeline endpoint
+    if (decoded.includes('/memory-timeline')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          events: [
+            { date: '2026-01-15', memories_added: 5, cumulative_count: 5 },
+            { date: '2026-02-01', memories_added: 3, cumulative_count: 8 },
+          ],
+          snapshot_at: null,
+          memories_at_snapshot: [
+            { id: 'mem_001', kind: 'profile_fact', content_preview: 'User prefers dark mode', confidence: 0.9, status: 'active', created_at: '2026-01-15T10:00:00Z' },
+          ],
+          subject_id: 'user_123',
+        }),
+      } as Response)
+    }
+    // Policy sandbox endpoint
+    if (decoded.includes('/policy-sandbox')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          results: [
+            { memory_id: 'mem_001', kind: 'profile_fact', content_preview: 'User prefers dark mode', sensitivity_labels: [], action: 'allow', rule_id: null, matched_labels: [] },
+          ],
+          total_memories: 1,
+          allowed: 1,
+          denied: 0,
+          redacted: 0,
+          error: null,
+        }),
+      } as Response)
+    }
+    // Memory clusters endpoint
+    if (decoded.includes('/memory-clusters')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          points: [],
+          total_memories: 0,
+          embedding_available: false,
+          error: 'Cluster view requires real embeddings.',
+        }),
+      } as Response)
+    }
+    // Admin receipts regression endpoint
+    if (decoded.includes('/regression')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          receipt_id: 'rcpt_001',
+          receipt_as_of: '2026-01-15T10:00:00Z',
+          stable: [],
+          dropped: [],
+          new_memories: [],
+        }),
+      } as Response)
+    }
+    // Admin receipts list endpoint
+    if (decoded.includes('/admin-receipts')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          items: [
+            { receipt_id: 'rcpt_001', as_of: '2026-01-15T10:00:00Z', created_at: '2026-01-15T10:00:00Z', mode: 'standard', context_size_bytes: 2048, memory_count: 5 },
+          ],
+          total: 1,
+        }),
+      } as Response)
+    }
     // Return memories for memories endpoint
     if (decoded.includes('/memories')) {
       return Promise.resolve({
@@ -975,3 +1078,204 @@ describe('Subject Detail - URL State Persistence', () => {
 })
 
 // Note: Inline memory drill-through tests are in session-timeline.test.tsx
+
+// ─── Inspector Feature Tests ──────────────────────────────────────────────────
+
+describe('Subject Detail - New Inspector Features (tabs)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('renders all 10 tabs after subject loads', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const expectedTabs = ['Overview', 'Memories', 'Episodes', 'Sessions', 'Retrieval', 'Conflicts', 'Timeline', 'Policy', 'Clusters', 'Receipts']
+    for (const tab of expectedTabs) {
+      expect(screen.getByRole('button', { name: new RegExp(tab, 'i') })).toBeInTheDocument()
+    }
+  })
+
+  it('shows Conflicts tab content when clicked', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const conflictsTab = screen.getByRole('button', { name: /Conflicts/i })
+    fireEvent.click(conflictsTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Memory Conflict Detector')).toBeInTheDocument()
+    })
+  })
+
+  it('shows Timeline tab content when clicked', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const timelineTab = screen.getByRole('button', { name: /Timeline/i })
+    fireEvent.click(timelineTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Memory Timeline')).toBeInTheDocument()
+    })
+  })
+
+  it('shows Policy tab with YAML textarea when clicked', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const policyTab = screen.getByRole('button', { name: /Policy/i })
+    fireEvent.click(policyTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Policy Sandbox')).toBeInTheDocument()
+    })
+
+    // YAML textarea should be visible
+    const textarea = document.querySelector('textarea')
+    expect(textarea).toBeInTheDocument()
+  })
+
+  it('shows Clusters tab content when clicked', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const clustersTab = screen.getByRole('button', { name: /Clusters/i })
+    fireEvent.click(clustersTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Memory Cluster View')).toBeInTheDocument()
+    })
+  })
+
+  it('shows Receipts tab with receipt list when clicked', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const receiptsTab = screen.getByRole('button', { name: /Receipts/i })
+    fireEvent.click(receiptsTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Retrieval Regression Tester')).toBeInTheDocument()
+    })
+
+    // Receipt list should load
+    await waitFor(() => {
+      expect(screen.getByText(/rcpt_001/)).toBeInTheDocument()
+    })
+  })
+})
+
+describe('Subject Detail - Compiler Trace Modal', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('shows Trace button on memory cards', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const memoriesTab = screen.getAllByRole('button').find((b) => b.textContent?.includes('Memories'))
+    fireEvent.click(memoriesTab!)
+
+    await waitFor(() => {
+      const traceLinks = screen.getAllByText(/Trace →/)
+      expect(traceLinks.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('opens compiler trace modal when Trace button is clicked', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    const memoriesTab = screen.getAllByRole('button').find((b) => b.textContent?.includes('Memories'))
+    fireEvent.click(memoriesTab!)
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Trace →/).length).toBeGreaterThan(0)
+    })
+
+    const traceButton = screen.getAllByText(/Trace →/)[0]
+    fireEvent.click(traceButton)
+
+    await waitFor(() => {
+      expect(screen.getByText('Compiler Trace')).toBeInTheDocument()
+    })
+
+    // Should show compiler metadata section
+    await waitFor(() => {
+      expect(screen.getByText('Compiler metadata')).toBeInTheDocument()
+    })
+  })
+})
+
+describe('Subject Detail - Conflicts scan', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('runs conflict scan and shows stub error for non-semantic embeddings', async () => {
+    createComprehensiveMock()
+    renderWithRouter('user_123')
+
+    await waitFor(() => {
+      expect(screen.getByText('user_123')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Conflicts/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Scan for conflicts')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Scan for conflicts'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Conflict detection requires real embeddings/)).toBeInTheDocument()
+    })
+  })
+})
