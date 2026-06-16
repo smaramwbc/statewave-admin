@@ -105,7 +105,7 @@ export function EpisodeDetailModal({
           <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-2">
             Payload
           </p>
-          <pre className="p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary overflow-x-auto max-h-64 overflow-y-auto">
+          <pre className="p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
             {JSON.stringify(episode.payload, null, 2)}
           </pre>
         </div>
@@ -116,7 +116,7 @@ export function EpisodeDetailModal({
             <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-2">
               Metadata
             </p>
-            <pre className="p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary overflow-x-auto max-h-40 overflow-y-auto">
+            <pre className="p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
               {JSON.stringify(episode.metadata, null, 2)}
             </pre>
           </div>
@@ -128,7 +128,7 @@ export function EpisodeDetailModal({
             <p className="text-[10px] font-medium text-theme-muted uppercase tracking-wide mb-2">
               Provenance
             </p>
-            <pre className="p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary overflow-x-auto max-h-40 overflow-y-auto">
+            <pre className="p-3 rounded-lg bg-[var(--theme-surface-1)] text-xs text-theme-secondary whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
               {JSON.stringify(episode.provenance, null, 2)}
             </pre>
           </div>
