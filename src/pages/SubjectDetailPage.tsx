@@ -2338,10 +2338,17 @@ metadata:
   name: sandbox-test
   description: "Test policy"
 rules:
-  - id: block_pii
-    labels: ["pii.email", "pii.phone"]
+  # Deny any memory tagged with either PII label
+  - id: block-pii
+    when:
+      memory_has_any_label: ["pii.email", "pii.phone"]
     action: deny
-    description: "Block PII memories"
+
+  # Redact only when BOTH labels are present
+  - id: redact-sensitive-external
+    when:
+      memory_has_all_labels: ["sensitive", "external"]
+    action: redact
 `
 
 function PolicyTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
@@ -2391,6 +2398,13 @@ function PolicyTab({ subjectId, tenantId }: { subjectId: string; tenantId: strin
           className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary placeholder:text-theme-muted focus:outline-none focus:border-emerald-500/50 resize-y"
           placeholder="Paste YAML policy here…"
         />
+        {/* Schema quick-reference */}
+        <div className="rounded-lg bg-[var(--theme-surface-1)] border border-theme-border/50 px-3 py-2 text-[10px] text-theme-muted space-y-0.5 font-mono">
+          <p className="font-sans font-medium text-theme-secondary mb-1 text-[11px]">Valid predicates inside <code className="font-mono">when:</code></p>
+          <p><span className="text-blue-400">memory_has_any_label</span>: ["label-a", "label-b"]  <span className="text-theme-muted/60">— fires if any label matches</span></p>
+          <p><span className="text-blue-400">memory_has_all_labels</span>: ["label-a", "label-b"]  <span className="text-theme-muted/60">— fires only if all labels match</span></p>
+          <p className="pt-0.5">Actions: <span className="text-red-400">deny</span> · <span className="text-amber-400">redact</span></p>
+        </div>
         <div className="flex justify-end">
           <Button variant="primary" onClick={run} disabled={loading || !yaml.trim()}>
             {loading ? 'Running…' : 'Run sandbox'}
@@ -2671,9 +2685,19 @@ function MemoryClusterCanvas({ points }: { points: ClusterPoint[] }) {
   )
 }
 
+const CLUSTER_KIND_META = [
+  { kind: 'profile_fact',    label: 'profile fact' },
+  { kind: 'episode_summary', label: 'episode summary' },
+  { kind: 'procedure',       label: 'procedure' },
+  { kind: 'artifact_ref',    label: 'artifact ref' },
+]
+
 function ClustersTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
   const [data, setData] = useState<MemoryClustersResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  // null = all kinds visible; Set = only those kinds visible
+  const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set())
+  const [activeOnly, setActiveOnly] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -2686,12 +2710,23 @@ function ClustersTab({ subjectId, tenantId }: { subjectId: string; tenantId: str
 
   if (loading) return <LoadingState rows={2} message="Computing clusters…" />
 
-  const LEGEND_KINDS = [
-    { kind: 'profile_fact', label: 'profile fact' },
-    { kind: 'episode_summary', label: 'episode summary' },
-    { kind: 'procedure', label: 'procedure' },
-    { kind: 'artifact_ref', label: 'artifact ref' },
-  ]
+  function toggleKind(kind: string) {
+    setHiddenKinds((prev) => {
+      const next = new Set(prev)
+      if (next.has(kind)) next.delete(kind); else next.add(kind)
+      return next
+    })
+  }
+
+  const presentKinds = data
+    ? new Set(data.points.map((p) => p.kind))
+    : new Set<string>()
+
+  const filteredPoints = data?.points.filter((p) => {
+    if (hiddenKinds.has(p.kind)) return false
+    if (activeOnly && p.status !== 'active') return false
+    return true
+  }) ?? []
 
   return (
     <div className="space-y-5">
@@ -2720,26 +2755,62 @@ function ClustersTab({ subjectId, tenantId }: { subjectId: string; tenantId: str
 
       {data && data.points.length > 0 && (
         <>
-          <MemoryClusterCanvas points={data.points} />
+          {/* Filter chips */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] text-theme-muted uppercase tracking-wide mr-1">Show</span>
+            {CLUSTER_KIND_META.filter(({ kind }) => presentKinds.has(kind)).map(({ kind, label }) => {
+              const on = !hiddenKinds.has(kind)
+              const c = CLUSTER_KIND_COLOR[kind]
+              return (
+                <button
+                  key={kind}
+                  onClick={() => toggleKind(kind)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] transition-all ${
+                    on
+                      ? 'border-transparent text-white'
+                      : 'border-theme-border bg-transparent text-theme-muted opacity-50 hover:opacity-80'
+                  }`}
+                  style={on && c ? { backgroundColor: `hsl(${c.h}, ${c.s}%, 45%)` } : undefined}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: on && c ? 'rgba(255,255,255,0.7)' : `hsl(${c?.h ?? 265}, ${c?.s ?? 70}%, 62%)` }}
+                  />
+                  {label}
+                </button>
+              )
+            })}
 
-          {/* Legend */}
-          <div className="flex flex-wrap gap-4 text-[11px]">
-            {LEGEND_KINDS.map(({ kind, label }) => (
-              <div key={kind} className="flex items-center gap-1.5">
-                <div
-                  className="w-2.5 h-2.5 rounded-full"
-                  style={{
-                    background: `hsl(${CLUSTER_KIND_COLOR[kind]?.h ?? 265}, ${CLUSTER_KIND_COLOR[kind]?.s ?? 70}%, 62%)`,
-                  }}
-                />
-                <span className="text-theme-muted">{label}</span>
-              </div>
-            ))}
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-gray-500" />
-              <span className="text-theme-muted">superseded / inactive</span>
-            </div>
+            {/* Divider */}
+            <div className="w-px h-4 bg-theme-border/60 mx-1" />
+
+            {/* Active only toggle */}
+            <button
+              onClick={() => setActiveOnly((v) => !v)}
+              className={`px-2.5 py-1 rounded-full border text-[11px] transition-all ${
+                activeOnly
+                  ? 'border-emerald-500/60 text-emerald-400 bg-emerald-500/10'
+                  : 'border-theme-border text-theme-muted hover:border-theme-border/80'
+              }`}
+            >
+              Active only
+            </button>
+
+            {(hiddenKinds.size > 0 || activeOnly) && (
+              <button
+                onClick={() => { setHiddenKinds(new Set()); setActiveOnly(false) }}
+                className="text-[10px] text-theme-muted hover:text-theme-secondary underline ml-1"
+              >
+                Reset
+              </button>
+            )}
+
+            <span className="ml-auto text-[10px] text-theme-muted">
+              {filteredPoints.length} / {data.points.length}
+            </span>
           </div>
+
+          <MemoryClusterCanvas points={filteredPoints} />
         </>
       )}
     </div>
