@@ -1,9 +1,8 @@
 /**
- * useAdminChat — minimal chat hook for the "Chat with Memory" panel.
+ * useAdminChat — chat hook for the "Chat with Memory" panel.
  *
- * Manages a local message list and calls POST /api/admin-chat on each turn.
- * Uses @statewavedev/chat-core's ChatMessage type so the chat-react
- * presentational components (MessageThread, ChatComposer) work directly.
+ * Manages message state and calls POST /api/admin-chat on each turn.
+ * Exposes timing stats and context items from the server response.
  */
 
 import { useState, useCallback, useRef } from 'react'
@@ -14,12 +13,26 @@ export interface AdminChatContextItem {
   text: string
   subject: string
   kind: string
+  score?: number
+  token_count?: number
+}
+
+export interface AdminChatStats {
+  retrieval_ms: number
+  llm_ms: number
+  total_ms: number
+  client_ms: number
+  context_tokens_est: number
+  llm_usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null
+  model: string
+  subject_counts: Record<string, number>
 }
 
 export interface AdminChatState {
   messages: ChatMessage[]
   isLoading: boolean
   contextItems: AdminChatContextItem[]
+  stats: AdminChatStats | null
   error: string | null
 }
 
@@ -62,6 +75,7 @@ export function useAdminChat(subjects: string[]): UseAdminChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [contextItems, setContextItems] = useState<AdminChatContextItem[]>([])
+  const [stats, setStats] = useState<AdminChatStats | null>(null)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -80,6 +94,7 @@ export function useAdminChat(subjects: string[]): UseAdminChatReturn {
       setError(null)
 
       const historyWithNew = [...messages, userMsg]
+      const clientStart = Date.now()
 
       fetch('/api/admin-chat', {
         method: 'POST',
@@ -92,10 +107,12 @@ export function useAdminChat(subjects: string[]): UseAdminChatReturn {
         signal: controller.signal,
       })
         .then(async (res) => {
+          const client_ms = Date.now() - clientStart
           const data = (await res.json()) as {
             reply?: string
             error?: string
             context_items?: AdminChatContextItem[]
+            stats?: AdminChatStats
           }
           if (!res.ok || data.error) {
             const msg = data.error === 'llm_not_configured'
@@ -108,6 +125,7 @@ export function useAdminChat(subjects: string[]): UseAdminChatReturn {
           } else {
             setMessages((prev) => [...prev, makeAssistantMessage(data.reply ?? '')])
             setContextItems(data.context_items ?? [])
+            if (data.stats) setStats({ ...data.stats, client_ms })
           }
         })
         .catch((err) => {
@@ -127,9 +145,10 @@ export function useAdminChat(subjects: string[]): UseAdminChatReturn {
     abortRef.current?.abort()
     setMessages([])
     setContextItems([])
+    setStats(null)
     setError(null)
     setIsLoading(false)
   }, [])
 
-  return { messages, isLoading, contextItems, error, sendMessage, reset }
+  return { messages, isLoading, contextItems, stats, error, sendMessage, reset }
 }

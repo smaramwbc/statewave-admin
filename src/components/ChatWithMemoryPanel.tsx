@@ -1,13 +1,63 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Modal } from './ui'
-import { useAdminChat, type AdminChatContextItem } from '../lib/useAdminChat'
+import { useAdminChat, type AdminChatContextItem, type AdminChatStats } from '../lib/useAdminChat'
 import { MarkdownMessage } from './chat/MarkdownMessage'
 import { toast } from 'sonner'
 import type { ChatMessage } from '@statewavedev/chat-core'
 import {
   RotateCcw, Send, Loader2, Copy, Check,
-  ChevronDown, Database, AlertCircle,
+  ChevronDown, Database, AlertCircle, Cpu,
 } from 'lucide-react'
+
+// ── Stats strip ──────────────────────────────────────────────────────────────
+
+function ms(n: number): string {
+  return n < 1000 ? `${n}ms` : `${(n / 1000).toFixed(1)}s`
+}
+
+function StatCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span className="text-[9px] uppercase tracking-wider text-theme-muted font-medium">{label}</span>
+      <span className="text-[11px] font-mono text-theme-secondary tabular-nums">{value}</span>
+    </div>
+  )
+}
+
+function StatsBar({ stats }: { stats: AdminChatStats }) {
+  const totalTok = stats.llm_usage?.total_tokens
+  const ctxTok = stats.context_tokens_est
+  const multiSubject = Object.keys(stats.subject_counts).length > 1
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2 rounded-lg bg-[var(--theme-surface-1)] border border-theme-border">
+      <div className="flex items-center gap-1 text-theme-muted shrink-0">
+        <Cpu className="h-3 w-3" aria-hidden="true" />
+        <span className="text-[9px] uppercase tracking-wider font-medium">Last turn</span>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 flex-1">
+        <StatCell label="Retrieval" value={ms(stats.retrieval_ms)} />
+        <StatCell label="LLM" value={ms(stats.llm_ms)} />
+        <StatCell label="Total" value={ms(stats.client_ms)} />
+        {ctxTok > 0 && <StatCell label="Context" value={`~${ctxTok.toLocaleString()} tok`} />}
+        {totalTok != null && totalTok > 0 && (
+          <StatCell label="LLM tokens" value={totalTok.toLocaleString()} />
+        )}
+        {stats.model && (
+          <StatCell label="Model" value={stats.model.split('/').pop() ?? stats.model} />
+        )}
+        {multiSubject && (
+          <StatCell
+            label="By subject"
+            value={Object.entries(stats.subject_counts)
+              .map(([s, n]) => `${s.split(':').pop() ?? s}: ${n}`)
+              .join(' · ')}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ── Context item kind badge ───────────────────────────────────────────────────
 
@@ -46,6 +96,11 @@ function ContextItemCard({ item }: { item: AdminChatContextItem }) {
               {item.subject}
             </span>
             <KindBadge kind={item.kind} />
+            {item.score != null && (
+              <span className="text-[9px] font-mono text-theme-muted shrink-0">
+                {(item.score * 100).toFixed(0)}%
+              </span>
+            )}
           </div>
           <p className={`text-xs text-theme-secondary leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
             {item.text}
@@ -57,10 +112,13 @@ function ContextItemCard({ item }: { item: AdminChatContextItem }) {
         />
       </button>
       {expanded && (
-        <div className="border-t border-theme-border bg-[var(--theme-surface-0)] px-3 py-2.5">
+        <div className="border-t border-theme-border bg-[var(--theme-surface-0)] px-3 py-2.5 space-y-2">
           <pre className="text-xs text-theme-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">
             {item.text}
           </pre>
+          {item.token_count != null && (
+            <p className="text-[9px] font-mono text-theme-muted">~{item.token_count} tokens</p>
+          )}
         </div>
       )}
     </div>
@@ -225,7 +283,7 @@ interface Props {
 }
 
 export function ChatWithMemoryPanel({ open, onClose, subjects }: Props) {
-  const { messages, isLoading, contextItems, sendMessage, reset } = useAdminChat(subjects)
+  const { messages, isLoading, contextItems, stats, sendMessage, reset } = useAdminChat(subjects)
   const [showContext, setShowContext] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -335,8 +393,9 @@ export function ChatWithMemoryPanel({ open, onClose, subjects }: Props) {
           </div>
 
           {/* Composer */}
-          <div className="shrink-0 pt-3 border-t border-theme-border">
+          <div className="shrink-0 pt-3 border-t border-theme-border space-y-2">
             <ChatInput onSend={handleSend} isLoading={isLoading} />
+            {stats && !isLoading && <StatsBar stats={stats} />}
           </div>
         </div>
 
