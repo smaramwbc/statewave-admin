@@ -183,7 +183,7 @@ function ChatInput({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-end gap-2 bg-[var(--theme-surface-1)] rounded-xl border border-theme-border focus-within:ring-1 focus-within:ring-accent/40 focus-within:border-accent/50 transition-colors px-3 py-2.5">
+      <div className="flex items-end gap-2 bg-[var(--theme-surface-1)] rounded-xl border border-theme-border focus-within:border-accent/50 transition-colors px-3 py-2.5">
         <textarea
           ref={textareaRef}
           value={value}
@@ -316,7 +316,7 @@ export function ChatWithMemoryPanel({ open, onClose, subjects }: Props) {
         {/* ── Chat pane ── */}
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           {/* Message list */}
-          <div className="flex-1 min-h-0 overflow-y-auto py-4 px-1 space-y-4">
+          <div className={`flex-1 min-h-0 py-4 px-1 space-y-4 ${hasContent ? 'overflow-y-auto' : 'overflow-hidden'}`}>
             {!hasContent && (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-6">
                 <div className="w-10 h-10 rounded-xl bg-[var(--theme-surface-2)] border border-theme-border flex items-center justify-center">
