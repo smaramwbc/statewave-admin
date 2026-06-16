@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Database, Cog, Receipt, Shield, Settings, Tag, Webhook, Stethoscope, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -10,16 +10,26 @@ interface NavItem {
   icon: LucideIcon
 }
 
-const navItems: NavItem[] = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard },
-  { to: '/subjects', label: 'Subjects', icon: Database },
-  { to: '/jobs', label: 'Jobs', icon: Cog },
-  { to: '/webhooks', label: 'Webhooks', icon: Webhook },
-  { to: '/receipts', label: 'Receipts', icon: Receipt },
-  { to: '/policy', label: 'Policy', icon: Shield },
-  { to: '/suggested-labels', label: 'Suggested labels', icon: Tag },
-  { to: '/diagnostics', label: 'Diagnostics', icon: Stethoscope },
-  { to: '/settings', label: 'Settings', icon: Settings },
+// Three visual groups separated by a thin divider.
+// Group 1: primary dashboard
+// Group 2: core operational data (memory, pipeline)
+// Group 3: administrative config
+const NAV_GROUPS: NavItem[][] = [
+  [
+    { to: '/', label: 'Overview', icon: LayoutDashboard },
+  ],
+  [
+    { to: '/subjects', label: 'Subjects', icon: Database },
+    { to: '/jobs', label: 'Jobs', icon: Cog },
+    { to: '/webhooks', label: 'Webhooks', icon: Webhook },
+    { to: '/receipts', label: 'Receipts', icon: Receipt },
+  ],
+  [
+    { to: '/policy', label: 'Policy', icon: Shield },
+    { to: '/suggested-labels', label: 'Suggested labels', icon: Tag },
+    { to: '/diagnostics', label: 'Diagnostics', icon: Stethoscope },
+    { to: '/settings', label: 'Settings', icon: Settings },
+  ],
 ]
 
 interface SidebarProps {
@@ -63,6 +73,61 @@ function unlockBodyScroll(scrollY: number) {
   document.body.style.right = ''
   document.body.style.width = ''
   window.scrollTo(0, scrollY)
+}
+
+/**
+ * Icon-only nav item for the collapsed desktop sidebar.
+ *
+ * Renders a custom fixed-position tooltip to the right so the label is
+ * always discoverable. Uses `position: fixed` (not `absolute`) so the
+ * tooltip escapes the nav's `overflow-y: auto` clipping context — a plain
+ * `title` attribute would rely on the browser's native tooltip which is
+ * slow, unstyled, and inconsistent across platforms.
+ */
+function CompactNavItem({ to, label, icon: Icon, onClick }: NavItem & { onClick: () => void }) {
+  const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null)
+  const liRef = useRef<HTMLLIElement>(null)
+
+  return (
+    <li ref={liRef}>
+      <NavLink
+        to={to}
+        end={to === '/'}
+        onClick={onClick}
+        aria-label={label}
+        onMouseEnter={() => {
+          const rect = liRef.current?.getBoundingClientRect()
+          if (rect) {
+            setTooltipPos({ top: rect.top + rect.height / 2, left: rect.right + 8 })
+          }
+        }}
+        onMouseLeave={() => setTooltipPos(null)}
+        className={({ isActive }) =>
+          `flex items-center justify-center px-0 min-h-11 py-2 rounded-lg text-sm transition-colors ${
+            isActive
+              ? 'bg-[var(--theme-surface-2)] text-theme-primary font-medium'
+              : 'text-theme-secondary hover:bg-[var(--theme-surface-1)] hover:text-theme-primary'
+          }`
+        }
+      >
+        <Icon className="h-4 w-4 opacity-70 shrink-0" aria-hidden="true" />
+      </NavLink>
+      {tooltipPos && (
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            top: tooltipPos.top,
+            left: tooltipPos.left,
+            transform: 'translateY(-50%)',
+          }}
+          className="z-50 px-2.5 py-1 text-xs font-medium text-theme-primary bg-[var(--theme-card-bg)] border border-theme-border rounded-md shadow-md pointer-events-none whitespace-nowrap"
+        >
+          {label}
+        </div>
+      )}
+    </li>
+  )
 }
 
 export function Sidebar({ mobileOpen, onClose, collapsed = false }: SidebarProps) {
@@ -134,43 +199,53 @@ export function Sidebar({ mobileOpen, onClose, collapsed = false }: SidebarProps
     </div>
   )
 
-  /**
-   * The full label list — used in the mobile drawer and the desktop
-   * expanded column. `compact` swaps to icons-only with a `title` +
-   * `aria-label` fallback so accessibility doesn't regress.
-   */
+  // Renders the nav groups with thin dividers between them.
+  // In compact mode: uses CompactNavItem components with custom tooltips.
+  // In expanded mode: shows full labels with the group dividers.
   const buildNavList = (compact: boolean) => (
-    <ul className="space-y-0.5">
-      {navItems.map((item) => {
-        const Icon = item.icon
-        return (
-          <li key={item.to}>
-            <NavLink
-              to={item.to}
-              end={item.to === '/'}
-              onClick={onClose}
-              aria-label={compact ? item.label : undefined}
-              title={compact ? item.label : undefined}
-              className={({ isActive }) =>
-                `flex items-center ${
-                  compact ? 'justify-center px-0' : 'gap-2.5 px-3'
-                } min-h-11 py-2 rounded-lg text-sm transition-colors ${
-                  isActive
-                    ? 'bg-[var(--theme-surface-2)] text-theme-primary font-medium'
-                    : 'text-theme-secondary hover:bg-[var(--theme-surface-1)] hover:text-theme-primary'
-                }`
+    <div className={compact ? 'space-y-2' : 'space-y-3'}>
+      {NAV_GROUPS.map((group, gi) => (
+        <div key={gi}>
+          {gi > 0 && (
+            <hr className={`border-theme-border ${compact ? 'mx-1 mb-2' : 'mx-1 mb-2'}`} />
+          )}
+          <ul className="space-y-0.5">
+            {group.map((item) => {
+              if (compact) {
+                return (
+                  <CompactNavItem
+                    key={item.to}
+                    {...item}
+                    onClick={onClose}
+                  />
+                )
               }
-            >
-              <Icon className="h-4 w-4 opacity-70 shrink-0" aria-hidden="true" />
-              {!compact && item.label}
-            </NavLink>
-          </li>
-        )
-      })}
-    </ul>
+              const Icon = item.icon
+              return (
+                <li key={item.to}>
+                  <NavLink
+                    to={item.to}
+                    end={item.to === '/'}
+                    onClick={onClose}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2.5 px-3 min-h-11 py-2 rounded-lg text-sm transition-colors ${
+                        isActive
+                          ? 'bg-[var(--theme-surface-2)] text-theme-primary font-medium'
+                          : 'text-theme-secondary hover:bg-[var(--theme-surface-1)] hover:text-theme-primary'
+                      }`
+                    }
+                  >
+                    <Icon className="h-4 w-4 opacity-70 shrink-0" aria-hidden="true" />
+                    {item.label}
+                  </NavLink>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
   )
-
-  const navList = buildNavList(false) // used by the mobile drawer
 
   // `__ADMIN_VERSION__` is injected by Vite `define` for app builds; guard it
   // so test (vitest) / non-Vite environments that don't apply the define still
@@ -261,7 +336,7 @@ export function Sidebar({ mobileOpen, onClose, collapsed = false }: SidebarProps
           </button>
         </div>
         <nav aria-label="Main navigation" className="flex-1 py-3 px-2 overflow-y-auto">
-          {navList}
+          {buildNavList(false)}
         </nav>
         {footer}
       </aside>
