@@ -420,9 +420,41 @@ function createComprehensiveMock(options?: {
     if (decoded.includes('/citing-memories')) {
       return Promise.resolve({
         ok: true,
-        json: async () => options?.emptyCitingMemories 
-          ? mockEmptyCitingMemoriesResponse 
+        json: async () => options?.emptyCitingMemories
+          ? mockEmptyCitingMemoriesResponse
           : mockCitingMemoriesResponse,
+      } as Response)
+    }
+    // Activity heatmap endpoint
+    if (decoded.includes('/activity')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ days: [], subject_id: 'user_123', window_days: 91 }),
+      } as Response)
+    }
+    // Retrieval simulator endpoint
+    if (decoded.includes('/retrieval-simulate')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          results: [],
+          query: '',
+          tokens_used: 0,
+          token_budget: 2000,
+          embedding_available: false,
+          error: null,
+        }),
+      } as Response)
+    }
+    // Memory provenance endpoint
+    if (decoded.includes('/provenance')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          memory: { id: 'mem_001', kind: 'fact', content: '', summary: '', confidence: 1, status: 'active', created_at: '', source_episode_ids: [] },
+          source_episodes: [],
+          sibling_memories: [],
+        }),
       } as Response)
     }
     // Return memories for memories endpoint
