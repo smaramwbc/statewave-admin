@@ -113,6 +113,10 @@ html[data-scroll-lock="true"] body {
   border-radius: 4px;
 }
 
+textarea:focus-visible {
+  outline: none;
+}
+
 /* Cursor affordance.
  *
  * Tailwind's preflight + Chrome 97+ removed the implicit `cursor: pointer`
