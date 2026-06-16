@@ -35,6 +35,7 @@
   --theme-text-muted: #9ca3af;
   --theme-border: rgba(255, 255, 255, 0.08);
   --theme-card-bg: #111827;
+  --theme-code-bg: #1e2837;
   --theme-selection: rgba(99, 102, 241, 0.3);
   --theme-scrollbar-thumb: rgba(99, 102, 241, 0.32);
   --theme-scrollbar-thumb-hover: rgba(129, 140, 248, 0.55);
@@ -51,6 +52,7 @@
   --theme-text-muted: #64748b;
   --theme-border: rgba(0, 0, 0, 0.08);
   --theme-card-bg: #ffffff;
+  --theme-code-bg: #edf0f7;
   --theme-selection: rgba(99, 102, 241, 0.15);
   --theme-scrollbar-thumb: rgba(99, 102, 241, 0.28);
   --theme-scrollbar-thumb-hover: rgba(99, 102, 241, 0.5);
