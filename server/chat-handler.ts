@@ -26,12 +26,30 @@ interface ContextItem {
   subject: string
   kind: 'fact' | 'procedure' | 'episode'
   score?: number
+  token_count: number
+}
+
+interface LLMUsage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+interface AdminChatStats {
+  retrieval_ms: number
+  llm_ms: number
+  total_ms: number
+  context_tokens_est: number
+  llm_usage: LLMUsage | null
+  model: string
+  subject_counts: Record<string, number>
 }
 
 interface AdminChatResponse {
   reply: string
   context_items: ContextItem[]
   subjects_queried: string[]
+  stats: AdminChatStats
   error?: string
 }
 
@@ -96,15 +114,15 @@ async function retrieveContext(
     let seq = 1
     for (const f of data.facts ?? []) {
       const text = memoryText(f)
-      if (text) items.push({ id: `S${seq++}`, text, subject: subjectId, kind: 'fact', score: f.score })
+      if (text) items.push({ id: `S${seq++}`, text, subject: subjectId, kind: 'fact', score: f.score, token_count: Math.ceil(text.length / 4) })
     }
     for (const p of data.procedures ?? []) {
       const text = memoryText(p)
-      if (text) items.push({ id: `S${seq++}`, text, subject: subjectId, kind: 'procedure', score: p.score })
+      if (text) items.push({ id: `S${seq++}`, text, subject: subjectId, kind: 'procedure', score: p.score, token_count: Math.ceil(text.length / 4) })
     }
     for (const e of data.episodes ?? []) {
       const text = episodeText(e)
-      if (text) items.push({ id: `S${seq++}`, text, subject: subjectId, kind: 'episode' })
+      if (text) items.push({ id: `S${seq++}`, text, subject: subjectId, kind: 'episode', token_count: Math.ceil(text.length / 4) })
     }
     return items.slice(0, 8)
   } catch {
@@ -143,14 +161,15 @@ function buildSystemPrompt(contextItems: ContextItem[], subjects: string[]): str
 async function callLLM(
   cfg: ReturnType<typeof getEvalConfig>,
   messages: Array<{ role: string; content: string }>,
-): Promise<{ reply: string; error: string | null }> {
+): Promise<{ reply: string; error: string | null; usage: LLMUsage | null; duration_ms: number }> {
   const { llm } = cfg
   if (!llm.provider || !llm.model || !llm.apiKey) {
-    return { reply: '', error: 'llm_not_configured' }
+    return { reply: '', error: 'llm_not_configured', usage: null, duration_ms: 0 }
   }
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 30_000)
+  const t0 = Date.now()
 
   try {
     if (llm.provider === 'anthropic') {
@@ -168,10 +187,15 @@ async function callLLM(
         body: JSON.stringify({ model: llm.model, max_tokens: 1024, system, messages: rest }),
         signal: controller.signal,
       })
-      if (!res.ok) return { reply: '', error: `HTTP ${res.status}` }
-      const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> }
+      if (!res.ok) return { reply: '', error: `HTTP ${res.status}`, usage: null, duration_ms: Date.now() - t0 }
+      const data = (await res.json()) as {
+        content?: Array<{ type?: string; text?: string }>
+        usage?: { input_tokens?: number; output_tokens?: number }
+      }
       const reply = data.content?.find((b) => b.type === 'text')?.text ?? ''
-      return { reply, error: null }
+      const inp = data.usage?.input_tokens ?? 0
+      const out = data.usage?.output_tokens ?? 0
+      return { reply, error: null, usage: { prompt_tokens: inp, completion_tokens: out, total_tokens: inp + out }, duration_ms: Date.now() - t0 }
     }
 
     // OpenAI / openai-compatible
@@ -186,12 +210,20 @@ async function callLLM(
       body: JSON.stringify({ model: llm.model, messages }),
       signal: controller.signal,
     })
-    if (!res.ok) return { reply: '', error: `HTTP ${res.status}` }
-    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+    if (!res.ok) return { reply: '', error: `HTTP ${res.status}`, usage: null, duration_ms: Date.now() - t0 }
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+    }
     const reply = data.choices?.[0]?.message?.content ?? ''
-    return { reply, error: null }
+    const usage: LLMUsage = {
+      prompt_tokens: data.usage?.prompt_tokens ?? 0,
+      completion_tokens: data.usage?.completion_tokens ?? 0,
+      total_tokens: data.usage?.total_tokens ?? 0,
+    }
+    return { reply, error: null, usage, duration_ms: Date.now() - t0 }
   } catch (e) {
-    return { reply: '', error: e instanceof Error ? e.message : 'unknown' }
+    return { reply: '', error: e instanceof Error ? e.message : 'unknown', usage: null, duration_ms: Date.now() - t0 }
   } finally {
     clearTimeout(timer)
   }
@@ -263,11 +295,14 @@ export async function handleAdminChat(
     return
   }
 
+  const t0 = Date.now()
+
   // Retrieve context from all subjects in parallel (budget split evenly)
   const perSubjectTokens = Math.floor(2000 / subjects.length)
   const contextArrays = await Promise.all(
     subjects.map((s) => retrieveContext(apiUrl, apiKey, s, lastUser.content, perSubjectTokens)),
   )
+  const retrieval_ms = Date.now() - t0
   const contextItems = contextArrays.flat()
 
   const systemPrompt = buildSystemPrompt(contextItems, subjects)
@@ -276,7 +311,7 @@ export async function handleAdminChat(
     ...messages,
   ]
 
-  const { reply, error } = await callLLM(cfg, llmMessages)
+  const { reply, error, usage: llmUsage, duration_ms: llm_ms } = await callLLM(cfg, llmMessages)
 
   if (error) {
     const status = error === 'llm_not_configured' ? 503 : 502
@@ -284,10 +319,24 @@ export async function handleAdminChat(
     return
   }
 
+  const subjectCounts: Record<string, number> = {}
+  for (const item of contextItems) {
+    subjectCounts[item.subject] = (subjectCounts[item.subject] ?? 0) + 1
+  }
+
   const response: AdminChatResponse = {
     reply,
     context_items: contextItems,
     subjects_queried: subjects,
+    stats: {
+      retrieval_ms,
+      llm_ms,
+      total_ms: Date.now() - t0,
+      context_tokens_est: contextItems.reduce((s, i) => s + i.token_count, 0),
+      llm_usage: llmUsage,
+      model: cfg.llm.model ?? '',
+      subject_counts: subjectCounts,
+    },
   }
   sendJson(res, 200, response)
 }
