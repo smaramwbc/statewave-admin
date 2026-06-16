@@ -30,7 +30,8 @@ import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { RefreshControl } from '../components/RefreshControl'
 import { Button, PageHeader } from '../components/ui'
-import { Upload, Trash2 } from 'lucide-react'
+import { ChatWithMemoryPanel } from '../components/ChatWithMemoryPanel'
+import { Upload, Trash2, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
@@ -153,6 +154,9 @@ export function SubjectsPage() {
   // Subjects-page top so all platform-level memory operations are reachable
   // here, not from the Dashboard.
   const [showMemoryDrawer, setShowMemoryDrawer] = useState(false)
+  // Chat with Memory — checkbox selection + panel
+  const [selectedSubjects, setSelectedSubjects] = useState<Set<string>>(new Set())
+  const [showChatPanel, setShowChatPanel] = useState(false)
 
   // Extract params from URL
   const search = searchParams.get('search') || ''
@@ -216,6 +220,11 @@ export function SubjectsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData()
   }, [loadData])
+
+  // Clear selection on page / filter change
+  useEffect(() => {
+    setSelectedSubjects(new Set())
+  }, [search, tenantId, healthState, sortBy, page])
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
 
@@ -297,6 +306,30 @@ export function SubjectsPage() {
         <div className="flex-1" />
       </div>
 
+      {/* Selection action bar — appears when checkboxes are ticked */}
+      {selectedSubjects.size > 0 && (
+        <div className="flex items-center gap-3 mb-3 px-3 py-2 rounded-lg border border-accent/30 bg-accent/5">
+          <span className="text-sm text-theme-secondary">
+            {selectedSubjects.size} subject{selectedSubjects.size === 1 ? '' : 's'} selected
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowChatPanel(true)}
+            leftIcon={<MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />}
+          >
+            Chat with Memory
+          </Button>
+          <button
+            type="button"
+            className="text-xs text-theme-muted hover:text-theme-primary transition-colors ml-auto"
+            onClick={() => setSelectedSubjects(new Set())}
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Results */}
       {error && !data && (
         <ErrorState
@@ -358,7 +391,32 @@ export function SubjectsPage() {
         />
       )}
 
-      {data && data.subjects.length > 0 && (
+      {data && data.subjects.length > 0 && (() => {
+        const allOnPageSelected = data.subjects.length > 0 && data.subjects.every((s) => selectedSubjects.has(s.subject_id))
+        const someOnPageSelected = data.subjects.some((s) => selectedSubjects.has(s.subject_id))
+        const toggleSubject = (id: string) =>
+          setSelectedSubjects((prev) => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+          })
+        const handleSelectAll = () => {
+          if (allOnPageSelected) {
+            setSelectedSubjects((prev) => {
+              const next = new Set(prev)
+              data.subjects.forEach((s) => next.delete(s.subject_id))
+              return next
+            })
+          } else {
+            setSelectedSubjects((prev) => {
+              const next = new Set(prev)
+              data.subjects.forEach((s) => next.add(s.subject_id))
+              return next
+            })
+          }
+        }
+        return (
         <>
           {/* Mobile: stacked cards. A 7-column subject table is unreadable
               at 320–430px even with horizontal scroll — long subject IDs
@@ -377,12 +435,25 @@ export function SubjectsPage() {
               // we also wrap them in a `data-no-link` container that
               // intercepts clicks before they reach the outer Link.
               <li key={subject.subject_id} className="relative">
+                {/* Checkbox — top-left, outside Link so it doesn't navigate */}
+                <div
+                  className="absolute top-2.5 left-2.5 z-10"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${subject.subject_id}`}
+                    checked={selectedSubjects.has(subject.subject_id)}
+                    onChange={() => toggleSubject(subject.subject_id)}
+                    className="h-4 w-4 accent-indigo-500 cursor-pointer"
+                  />
+                </div>
                 <Link
                   to={`/subjects/${encodeURIComponent(subject.subject_id)}`}
                   className="block rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-3 hover:border-accent/40 hover:bg-[var(--theme-surface-1)]/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none"
                   aria-label={`Open subject ${subject.subject_id}`}
                 >
-                  <div className="min-w-0 pr-12">
+                  <div className="min-w-0 pl-7 pr-12">
                     {/* Subject id renders on a single line and scrolls
                         horizontally on overflow. The pr-12 right pad
                         reserves space for the absolutely-positioned
@@ -476,6 +547,16 @@ export function SubjectsPage() {
             <table className="w-full text-sm table-fixed">
               <thead className="sticky top-0 z-10 bg-[var(--theme-surface-1)] border-b border-theme-border">
                 <tr>
+                  <th className="w-10 px-3 py-3 text-center" aria-label="Select all">
+                    <input
+                      type="checkbox"
+                      ref={(el) => { if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected }}
+                      checked={allOnPageSelected}
+                      onChange={handleSelectAll}
+                      aria-label="Select all subjects on this page"
+                      className="h-4 w-4 accent-indigo-500 cursor-pointer"
+                    />
+                  </th>
                   <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Subject ID</th>
                   <th className="w-28 text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Tenant</th>
                   <th className="w-28 text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-3">Health</th>
@@ -493,6 +574,15 @@ export function SubjectsPage() {
                     key={subject.subject_id}
                     className="border-b border-theme-border/50 last:border-b-0 hover:bg-[var(--theme-surface-1)]/50 transition-colors"
                   >
+                    <td className="px-3 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${subject.subject_id}`}
+                        checked={selectedSubjects.has(subject.subject_id)}
+                        onChange={() => toggleSubject(subject.subject_id)}
+                        className="h-4 w-4 accent-indigo-500 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-3 max-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Link
@@ -566,7 +656,8 @@ export function SubjectsPage() {
             Showing {data.subjects.length} of {data.total} subjects
           </div>
         </>
-      )}
+        )
+      })()}
 
       {/* No blocking overlay during refresh — initial-load skeleton above
           handles the no-data case; subsequent refreshes keep current rows
@@ -846,6 +937,12 @@ export function SubjectsPage() {
           )}
         </div>
       </Modal>
+
+      <ChatWithMemoryPanel
+        open={showChatPanel}
+        onClose={() => setShowChatPanel(false)}
+        subjects={Array.from(selectedSubjects)}
+      />
 
       <MemoryActionsDrawer
         open={showMemoryDrawer}

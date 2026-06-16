@@ -49,6 +49,7 @@ import type {
   EvalRunOptions,
   QuestionGenerationRequest,
 } from './self-healing-eval/types.js'
+import { handleAdminChat } from './chat-handler.js'
 
 export const ROUTES = {
   session: '/api/auth/session',
@@ -71,6 +72,7 @@ export const ROUTES = {
   proxyInfo: '/api/admin/proxy-info',
   adminReadiness: '/api/admin/readiness-check',
   enableAdminAuth: '/api/admin-settings/enable-admin-auth',
+  adminChat: '/api/admin-chat',
 } as const
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -653,6 +655,18 @@ export async function dispatch(
     else if (p === ROUTES.adminSettingsConfirm) await handleAdminSettingsConfirm(req, res)
     else if (p === ROUTES.adminSettingsRevert) await handleAdminSettingsRevert(req, res)
     else await handleEnableAdminAuth(req, res)
+    return true
+  }
+  if (p === ROUTES.adminChat) {
+    const authCfg = getAuthConfig()
+    const auth = checkRequestAuth(asRequestLike(req), authCfg)
+    if (!auth.ok) {
+      const status = auth.reason === 'misconfigured' ? 503 : auth.status
+      const error = auth.reason === 'misconfigured' ? 'auth_not_configured' : 'unauthorized'
+      sendJson(res, status, { error })
+      return true
+    }
+    await handleAdminChat(req, res)
     return true
   }
   return false

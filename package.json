@@ -19,6 +19,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@statewavedev/chat-core": "^0.1.0",
+    "@statewavedev/chat-react": "^0.1.0",
     "@tauri-apps/api": "^2.4.0",
     "lucide-react": "^1.17.0",
     "react": "^19.2.7",
