@@ -61,6 +61,72 @@ const PAGE_SIZE = 50
 const VALID_TABS = ['overview', 'memories', 'episodes', 'sessions', 'retrieval', 'conflicts', 'timeline', 'policy', 'clusters', 'receipts'] as const
 type TabId = (typeof VALID_TABS)[number]
 
+// Groups collapse the 10 leaf-tab IDs into 4 top-level sections.
+// The URL always stores the leaf tab ID so deep-links and browser
+// history remain stable — the active group is always derived from it.
+const GROUPS = [
+  { id: 'overview',  label: 'Overview',  subtabs: ['overview'] as TabId[],                                            defaultTab: 'overview'  as TabId },
+  { id: 'memories',  label: 'Memories',  subtabs: ['memories', 'retrieval', 'conflicts', 'timeline', 'clusters'] as TabId[], defaultTab: 'memories'  as TabId },
+  { id: 'episodes',  label: 'Episodes',  subtabs: ['episodes', 'sessions'] as TabId[],                                defaultTab: 'episodes'  as TabId },
+  { id: 'debug',     label: 'Debug',     subtabs: ['policy', 'receipts'] as TabId[],                                  defaultTab: 'policy'    as TabId },
+] as const
+
+type GroupId = (typeof GROUPS)[number]['id']
+
+function tabToGroup(tab: TabId): GroupId {
+  for (const g of GROUPS) {
+    if ((g.subtabs as readonly TabId[]).includes(tab)) return g.id
+  }
+  return 'overview'
+}
+
+const SUBTAB_TOOLTIP: Partial<Record<TabId, string>> = {
+  memories:  'Active and historical memories',
+  retrieval: 'Test what a query would return',
+  conflicts: 'Memories with contradictory content',
+  timeline:  'Memory change history over time',
+  clusters:  'Visual grouping by kind',
+  episodes:  'Raw episode inputs',
+  sessions:  'Grouped episode sessions',
+  policy:    'Dry-run policy sandbox',
+  receipts:  'Retrieval audit log',
+}
+
+function SubTabStrip({
+  tabs,
+  activeTab,
+  onTabChange,
+}: {
+  tabs: { id: string; label: string; count?: number }[]
+  activeTab: string
+  onTabChange: (id: string) => void
+}) {
+  return (
+    <div className="flex gap-1.5 mb-5 mt-1 flex-wrap">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => onTabChange(t.id)}
+          title={SUBTAB_TOOLTIP[t.id as TabId]}
+          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-medium transition-colors border ${
+            activeTab === t.id
+              ? 'bg-accent text-white border-accent'
+              : 'bg-[var(--theme-surface-1)] text-theme-secondary hover:text-theme-primary border-theme-border'
+          }`}
+        >
+          {t.label}
+          {t.count !== undefined && t.count > 0 && (
+            <span className={`tabular-nums ${activeTab === t.id ? 'text-white/80' : 'text-theme-muted'}`}>
+              {t.count}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -116,6 +182,24 @@ export function SubjectDetailPage() {
       updateParams({ tab: tab === 'overview' ? null : tab })
     },
     [updateParams]
+  )
+
+  // Group tab change: navigate to the group's default sub-tab.
+  // If already inside the group (e.g. on Retrieval), clicking the
+  // Memories group tab does nothing — the sub-tab strip handles
+  // intra-group navigation.
+  const setActiveGroup = useCallback(
+    (gid: string) => {
+      const group = GROUPS.find((g) => g.id === gid)
+      if (group && gid !== tabToGroup(
+        (VALID_TABS.includes(searchParams.get('tab') as TabId)
+          ? searchParams.get('tab') as TabId
+          : 'overview')
+      )) {
+        updateParams({ tab: group.defaultTab === 'overview' ? null : group.defaultTab })
+      }
+    },
+    [updateParams, searchParams]
   )
 
   // Session filter change handler
@@ -221,17 +305,12 @@ export function SubjectDetailPage() {
 
   if (!detail) return null
 
-  const tabs = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'memories', label: 'Memories', count: detail.summary.memory_count },
-    { id: 'episodes', label: 'Episodes', count: detail.summary.episode_count },
-    { id: 'sessions', label: 'Sessions', count: detail.summary.session_count },
-    { id: 'retrieval', label: 'Retrieval' },
-    { id: 'conflicts', label: 'Conflicts' },
-    { id: 'timeline', label: 'Timeline' },
-    { id: 'policy', label: 'Policy' },
-    { id: 'clusters', label: 'Clusters' },
-    { id: 'receipts', label: 'Receipts' },
+  const activeGroup = tabToGroup(activeTab)
+  const groupTabs = [
+    { id: 'overview',  label: 'Overview' },
+    { id: 'memories',  label: 'Memories', count: detail.summary.memory_count },
+    { id: 'episodes',  label: 'Episodes', count: detail.summary.episode_count },
+    { id: 'debug',     label: 'Debug' },
   ]
 
   return (
@@ -316,65 +395,98 @@ export function SubjectDetailPage() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+      {/* Group tabs — 4 top-level sections */}
+      <Tabs tabs={groupTabs} activeTab={activeGroup} onTabChange={setActiveGroup} />
 
       {/* Tab Panels */}
-      <TabPanel isActive={activeTab === 'overview'}>
+      <TabPanel isActive={activeGroup === 'overview'}>
         <OverviewTab detail={detail} />
       </TabPanel>
-      <TabPanel isActive={activeTab === 'memories'}>
-        <MemoriesTab 
-          subjectId={detail.subject_id} 
-          tenantId={detail.tenant_id}
-          onSessionClick={handleSessionClick}
-          searchQuery={memorySearch}
-          onSearchChange={setMemorySearch}
-          page={memoryPage}
-          onPageChange={setMemoryPage}
-          statusFilter={memoryStatus}
-          onStatusFilterChange={setMemoryStatus}
+
+      <TabPanel isActive={activeGroup === 'memories'}>
+        <SubTabStrip
+          tabs={[
+            { id: 'memories',  label: 'Memories',  count: detail.summary.memory_count },
+            { id: 'retrieval', label: 'Retrieval' },
+            { id: 'conflicts', label: 'Conflicts' },
+            { id: 'timeline',  label: 'Timeline' },
+            { id: 'clusters',  label: 'Clusters' },
+          ]}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
         />
+        {activeTab === 'memories' && (
+          <MemoriesTab
+            subjectId={detail.subject_id}
+            tenantId={detail.tenant_id}
+            onSessionClick={handleSessionClick}
+            searchQuery={memorySearch}
+            onSearchChange={setMemorySearch}
+            page={memoryPage}
+            onPageChange={setMemoryPage}
+            statusFilter={memoryStatus}
+            onStatusFilterChange={setMemoryStatus}
+          />
+        )}
+        {activeTab === 'retrieval' && (
+          <RetrievalTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+        )}
+        {activeTab === 'conflicts' && (
+          <ConflictsTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+        )}
+        {activeTab === 'timeline' && (
+          <TimelineTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+        )}
+        {activeTab === 'clusters' && (
+          <ClustersTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+        )}
       </TabPanel>
-      <TabPanel isActive={activeTab === 'episodes'}>
-        <EpisodesTab 
-          subjectId={detail.subject_id} 
-          tenantId={detail.tenant_id}
-          sessionFilter={sessionFilter}
-          onSessionFilterChange={setSessionFilter}
-          searchQuery={episodeSearch}
-          onSearchChange={setEpisodeSearch}
-          page={episodePage}
-          onPageChange={setEpisodePage}
+
+      <TabPanel isActive={activeGroup === 'episodes'}>
+        <SubTabStrip
+          tabs={[
+            { id: 'episodes', label: 'Episodes', count: detail.summary.episode_count },
+            { id: 'sessions', label: 'Sessions', count: detail.summary.session_count },
+          ]}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
         />
+        {activeTab === 'episodes' && (
+          <EpisodesTab
+            subjectId={detail.subject_id}
+            tenantId={detail.tenant_id}
+            sessionFilter={sessionFilter}
+            onSessionFilterChange={setSessionFilter}
+            searchQuery={episodeSearch}
+            onSearchChange={setEpisodeSearch}
+            page={episodePage}
+            onPageChange={setEpisodePage}
+          />
+        )}
+        {activeTab === 'sessions' && (
+          <SessionsTab
+            subjectId={detail.subject_id}
+            tenantId={detail.tenant_id}
+            onViewEpisodesForSession={handleViewEpisodesForSession}
+          />
+        )}
       </TabPanel>
-      <TabPanel isActive={activeTab === 'sessions'}>
-        <SessionsTab
-          subjectId={detail.subject_id}
-          tenantId={detail.tenant_id}
-          onViewEpisodesForSession={handleViewEpisodesForSession}
+
+      <TabPanel isActive={activeGroup === 'debug'}>
+        <SubTabStrip
+          tabs={[
+            { id: 'policy',   label: 'Policy' },
+            { id: 'receipts', label: 'Receipts' },
+          ]}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
         />
-      </TabPanel>
-      <TabPanel isActive={activeTab === 'retrieval'}>
-        <RetrievalTab
-          subjectId={detail.subject_id}
-          tenantId={detail.tenant_id}
-        />
-      </TabPanel>
-      <TabPanel isActive={activeTab === 'conflicts'}>
-        <ConflictsTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
-      </TabPanel>
-      <TabPanel isActive={activeTab === 'timeline'}>
-        <TimelineTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
-      </TabPanel>
-      <TabPanel isActive={activeTab === 'policy'}>
-        <PolicyTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
-      </TabPanel>
-      <TabPanel isActive={activeTab === 'clusters'}>
-        <ClustersTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
-      </TabPanel>
-      <TabPanel isActive={activeTab === 'receipts'}>
-        <ReceiptsTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+        {activeTab === 'policy' && (
+          <PolicyTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+        )}
+        {activeTab === 'receipts' && (
+          <ReceiptsTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+        )}
       </TabPanel>
 
       <Modal

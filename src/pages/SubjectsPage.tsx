@@ -247,7 +247,7 @@ export function SubjectsPage() {
       />
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4 items-center">
         <div className="flex-1 min-w-[200px] max-w-md">
           <SearchInput
             value={search}
@@ -285,6 +285,16 @@ export function SubjectsPage() {
             aria-label="Sort subjects by"
           />
         </div>
+        {(search || healthState || tenantId) && (
+          <button
+            type="button"
+            onClick={() => updateParams({ search: undefined, health: undefined, tenant: undefined })}
+            className="text-xs text-theme-muted hover:text-theme-primary transition-colors whitespace-nowrap"
+          >
+            Clear filters
+          </button>
+        )}
+        <div className="flex-1" />
       </div>
 
       {/* Results */}

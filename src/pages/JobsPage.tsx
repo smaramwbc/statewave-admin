@@ -413,6 +413,14 @@ export function JobsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4 items-center">
+        <div className="flex-1 min-w-[200px] max-w-sm">
+          <SearchInput
+            value={tenantFilter}
+            onChange={(v) => updateParams({ tenant: v || undefined })}
+            placeholder="Filter by tenant…"
+          />
+        </div>
+
         <div className="w-40">
           <FilterSelect
             value={statusFilter}
@@ -423,13 +431,15 @@ export function JobsPage() {
           />
         </div>
 
-        <div className="w-56">
-          <SearchInput
-            value={tenantFilter}
-            onChange={(v) => updateParams({ tenant: v || undefined })}
-            placeholder="Filter by tenant…"
-          />
-        </div>
+        {(statusFilter || tenantFilter) && (
+          <button
+            type="button"
+            onClick={() => updateParams({ status: undefined, tenant: undefined })}
+            className="text-xs text-theme-muted hover:text-theme-primary transition-colors whitespace-nowrap"
+          >
+            Clear filters
+          </button>
+        )}
 
         {stuckCount > 0 && (
           <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 inline-flex items-center gap-1.5">
