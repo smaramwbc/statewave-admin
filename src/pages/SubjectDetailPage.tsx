@@ -46,9 +46,11 @@ import {
   type ActivityResponse,
   type CompilerTraceResponse,
   type ConflictsResponse,
+  type MemoryTimelineEvent,
   type MemoryTimelineResponse,
   type PolicySandboxResponse,
   type MemoryClustersResponse,
+  type ClusterPoint,
   type AdminReceiptListResponse,
   type RegressionResponse,
 } from '../lib/api'
