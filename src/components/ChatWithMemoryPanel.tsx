@@ -241,7 +241,7 @@ function ChatInput({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-end gap-2 bg-[var(--theme-surface-1)] rounded-xl border border-theme-border px-3 py-2.5">
+      <div className="flex items-center gap-2 bg-[var(--theme-surface-1)] rounded-xl border border-theme-border px-3 py-2.5">
         <textarea
           ref={textareaRef}
           value={value}
