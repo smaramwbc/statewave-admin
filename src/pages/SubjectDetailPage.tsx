@@ -2067,12 +2067,121 @@ function ConflictsTab({ subjectId, tenantId }: { subjectId: string; tenantId: st
 
 // ─── Timeline Tab ─────────────────────────────────────────────────────────────
 
+// ─── Timeline Strip ───────────────────────────────────────────────────────────
+
+function TimelineStrip({
+  events,
+  selectedIdx,
+  onSelect,
+}: {
+  events: MemoryTimelineEvent[]
+  selectedIdx: number | null
+  onSelect: (idx: number) => void
+}) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const [tooltipX, setTooltipX] = useState<number>(0)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const dates = events.map((e) => new Date(e.date + 'T00:00:00Z').getTime())
+  const minT = Math.min(...dates)
+  const maxT = Math.max(...dates)
+  const range = maxT === minT ? 1 : maxT - minT
+  const maxAdded = Math.max(...events.map((e) => e.memories_added), 1)
+
+  // Map event index → left% clamped to [3, 97] so dots don't clip the edges
+  function leftPct(i: number) {
+    return 3 + ((dates[i] - minT) / range) * 94
+  }
+
+  function dotRadius(ev: MemoryTimelineEvent) {
+    // 5–11 px radius based on memories_added
+    return 5 + Math.round((ev.memories_added / maxAdded) * 6)
+  }
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  function fmtDate(s: string) {
+    const d = new Date(s + 'T00:00:00Z')
+    return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
+  }
+
+  function handleDotEnter(e: React.MouseEvent<HTMLButtonElement>, idx: number) {
+    const cRect = containerRef.current?.getBoundingClientRect()
+    if (!cRect) return
+    const dRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setTooltipX(dRect.left - cRect.left + dRect.width / 2)
+    setHoveredIdx(idx)
+  }
+
+  const hEv = hoveredIdx !== null ? events[hoveredIdx] : null
+
+  return (
+    <div ref={containerRef} className="relative select-none" style={{ height: '88px' }}>
+      {/* Track line */}
+      <div className="absolute left-0 right-0 top-[38px] h-px bg-theme-border" />
+
+      {/* Dots */}
+      {events.map((ev, i) => {
+        const isSel = selectedIdx === i
+        const isHov = hoveredIdx === i
+        const r = dotRadius(ev)
+        return (
+          <button
+            key={ev.date}
+            onClick={() => onSelect(i)}
+            onMouseEnter={(e) => handleDotEnter(e, i)}
+            onMouseLeave={() => setHoveredIdx(null)}
+            style={{
+              left: `${leftPct(i)}%`,
+              top: '38px',
+              transform: 'translate(-50%, -50%)',
+              width: r * 2,
+              height: r * 2,
+            }}
+            className={`absolute rounded-full border-2 transition-all duration-150 focus:outline-none z-10 ${
+              isSel
+                ? 'bg-blue-500 border-blue-300 shadow-[0_0_12px_rgba(59,130,246,0.6)]'
+                : isHov
+                ? 'bg-blue-400/80 border-blue-300 scale-125'
+                : 'bg-[var(--theme-card-bg)] border-blue-500/50 hover:border-blue-400 hover:bg-blue-500/15'
+            }`}
+          />
+        )
+      })}
+
+      {/* Hover tooltip — floats above the dot */}
+      {hEv && (
+        <div
+          className="absolute z-20 pointer-events-none -translate-x-1/2 rounded-lg border border-theme-border bg-[var(--theme-card-bg)] shadow-xl px-3 py-2 text-xs whitespace-nowrap"
+          style={{ left: tooltipX, top: 0 }}
+        >
+          <p className="font-medium text-theme-primary">{fmtDate(hEv.date)}</p>
+          <p className="text-theme-muted mt-0.5">
+            +{hEv.memories_added} memor{hEv.memories_added !== 1 ? 'ies' : 'y'} · {hEv.cumulative_count} total
+          </p>
+        </div>
+      )}
+
+      {/* Axis labels */}
+      <div className="absolute left-0 right-0 bottom-0 flex justify-between text-[10px] text-theme-muted">
+        <span>{fmtDate(events[0].date)}</span>
+        {events.length > 1 && <span>{fmtDate(events[events.length - 1].date)}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ─── Timeline Tab ─────────────────────────────────────────────────────────────
+
+const TIMELINE_PAGE = 20
+
 function TimelineTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
   const [data, setData] = useState<MemoryTimelineResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [snapshotIdx, setSnapshotIdx] = useState<number | null>(null)
   const [snapshotData, setSnapshotData] = useState<MemoryTimelineResponse | null>(null)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(TIMELINE_PAGE)
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -2083,8 +2192,34 @@ function TimelineTab({ subjectId, tenantId }: { subjectId: string; tenantId: str
     return () => { cancelled = true }
   }, [subjectId, tenantId])
 
+  const displayData = snapshotData ?? data
+
+  // Reset page when the displayed snapshot changes
+  useEffect(() => { setVisibleCount(TIMELINE_PAGE) }, [displayData])
+
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    const el = sentinelRef.current
+    const total = displayData?.memories_at_snapshot.length ?? 0
+    if (!el || visibleCount >= total) return
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setVisibleCount((c) => Math.min(c + TIMELINE_PAGE, total))
+      },
+      { rootMargin: '180px' },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [visibleCount, displayData])
+
   async function scrubTo(idx: number) {
     if (!data) return
+    // Toggle off if same dot clicked again
+    if (snapshotIdx === idx) {
+      setSnapshotIdx(null)
+      setSnapshotData(null)
+      return
+    }
     setSnapshotIdx(idx)
     const event = data.events[idx]
     if (!event) return
@@ -2105,15 +2240,15 @@ function TimelineTab({ subjectId, tenantId }: { subjectId: string; tenantId: str
   if (loading) return <LoadingState rows={3} message="Loading timeline…" />
 
   if (!data || data.events.length === 0) {
-    return (
-      <EmptyState title="No timeline data" description="No memories have been compiled yet for this subject." />
-    )
+    return <EmptyState title="No timeline data" description="No memories have been compiled yet for this subject." />
   }
 
-  const maxAdded = Math.max(...data.events.map((e) => e.memories_added), 1)
   const selectedEvent = snapshotIdx !== null ? data.events[snapshotIdx] : null
-  const displayData = snapshotData ?? data
-  const displayLabel = selectedEvent ? `at ${selectedEvent.date}` : 'current'
+  const allMemories = displayData?.memories_at_snapshot ?? []
+  const visibleMemories = allMemories.slice(0, visibleCount)
+  const displayLabel = selectedEvent
+    ? `at ${selectedEvent.date}`
+    : 'current'
 
   return (
     <div className="space-y-5">
@@ -2121,43 +2256,27 @@ function TimelineTab({ subjectId, tenantId }: { subjectId: string; tenantId: str
         <div className="flex gap-3 items-start">
           <Clock className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-medium text-theme-primary">Memory Timeline Scrubber</p>
+            <p className="text-sm font-medium text-theme-primary">Memory Timeline</p>
             <p className="text-xs text-theme-muted mt-0.5">
-              Click any bar to see which memories existed at that point in time.
+              Each dot is a compile event — size shows memories added. Click to travel back in time.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Bar chart timeline */}
-      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4 overflow-x-auto">
-        <div className="flex items-end gap-1 min-w-max" style={{ height: '80px' }}>
-          {data.events.map((ev, i) => (
-            <button
-              key={ev.date}
-              title={`${ev.date}: +${ev.memories_added} (total ${ev.cumulative_count})`}
-              onClick={() => scrubTo(i)}
-              className={`flex-shrink-0 w-4 rounded-t transition-all hover:opacity-80 ${
-                snapshotIdx === i ? 'bg-blue-400' : 'bg-blue-500/40 hover:bg-blue-500/70'
-              }`}
-              style={{ height: `${Math.max(4, Math.round((ev.memories_added / maxAdded) * 72))}px` }}
-            />
-          ))}
-        </div>
-        <div className="flex justify-between text-[10px] text-theme-muted mt-1">
-          <span>{data.events[0]?.date}</span>
-          <span>{data.events[data.events.length - 1]?.date}</span>
-        </div>
+      {/* Timeline strip */}
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] px-6 pt-5 pb-4">
+        <TimelineStrip events={data.events} selectedIdx={snapshotIdx} onSelect={scrubTo} />
       </div>
 
-      {/* Snapshot memories */}
+      {/* Memories list with infinite scroll */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <h3 className="text-sm font-medium text-theme-primary">
             Memories {displayLabel}
           </h3>
           {selectedEvent && (
-            <span className="text-xs text-theme-muted">— cumulative total: {selectedEvent.cumulative_count}</span>
+            <span className="text-xs text-theme-muted">— {selectedEvent.cumulative_count} total</span>
           )}
           {snapshotIdx !== null && (
             <button
@@ -2168,23 +2287,42 @@ function TimelineTab({ subjectId, tenantId }: { subjectId: string; tenantId: str
             </button>
           )}
         </div>
+
         {snapshotLoading ? (
           <LoadingState rows={2} message="Loading snapshot…" />
         ) : (
           <div className="space-y-2">
-            {displayData.memories_at_snapshot.length === 0 ? (
+            {allMemories.length === 0 ? (
               <p className="text-xs text-theme-muted">No memories at this point.</p>
             ) : (
-              displayData.memories_at_snapshot.map((m) => (
-                <div key={m.id} className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-3 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.kind}</Badge>
-                    {m.status !== 'active' && <Badge variant="muted">{m.status}</Badge>}
-                    <span className="text-[10px] text-theme-muted font-mono ml-auto">{m.id.slice(0, 8)}</span>
+              <>
+                {visibleMemories.map((m) => (
+                  <div
+                    key={m.id}
+                    className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-3 space-y-1"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.kind}</Badge>
+                      {m.status !== 'active' && <Badge variant="muted">{m.status}</Badge>}
+                      <span className="text-[10px] text-theme-muted font-mono ml-auto">{m.id.slice(0, 8)}</span>
+                    </div>
+                    <p className="text-xs text-theme-secondary line-clamp-2">{m.content_preview}</p>
                   </div>
-                  <p className="text-xs text-theme-secondary line-clamp-2">{m.content_preview}</p>
-                </div>
-              ))
+                ))}
+
+                {/* Infinite scroll sentinel */}
+                {visibleCount < allMemories.length && (
+                  <div ref={sentinelRef} className="h-10 flex items-center justify-center">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-theme-border border-t-blue-400" />
+                  </div>
+                )}
+
+                {visibleCount >= allMemories.length && allMemories.length > TIMELINE_PAGE && (
+                  <p className="text-center text-[11px] text-theme-muted py-2">
+                    All {allMemories.length} memories loaded
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -2376,13 +2514,50 @@ function MemoryClusterCanvas({ points }: { points: ClusterPoint[] }) {
     const dark = isDarkRef.current
     const hovIdx = hoveredIdxRef.current
 
-    for (let i = 0; i < pts.length; i++) {
-      const pt = pts[i]
+    // Pre-compute current pixel positions for all particles
+    const pos: { x: number; y: number }[] = pts.map((pt, i) => {
       const s = starts[i]
       const tx = ((pt.x + 1) / 2) * (W - M * 2) + M
       const ty = ((-pt.y + 1) / 2) * (H - M * 2) + M
-      const px = s.x * W + (tx - s.x * W) * progress
-      const py = s.y * H + (ty - s.y * H) * progress
+      return { x: s.x * W + (tx - s.x * W) * progress, y: s.y * H + (ty - s.y * H) * progress }
+    })
+
+    // ── Pass 1: proximity edges (fade in after particles have mostly settled) ──
+    if (progress > 0.55) {
+      const edgeAlpha = (progress - 0.55) / 0.45  // 0→1 as progress 0.55→1
+      const DIST_THRESH = Math.min(W, H) * 0.20    // ~20% of the smaller canvas dimension
+      ctx.save()
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          const dx = pos[i].x - pos[j].x
+          const dy = pos[i].y - pos[j].y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          if (dist >= DIST_THRESH) continue
+          const proximity = 1 - dist / DIST_THRESH
+          const sameKind = pts[i].kind === pts[j].kind
+          const bothActive = pts[i].status === 'active' && pts[j].status === 'active'
+          // Same-kind active edges are coloured; cross-kind edges are neutral
+          if (sameKind && bothActive) {
+            ctx.strokeStyle = clusterHsl(pts[i].kind, pts[i].status, dark ? 65 : 45, proximity * edgeAlpha * 0.45)
+            ctx.lineWidth = 0.9
+          } else {
+            const neutral = dark ? '140,150,170' : '120,130,150'
+            ctx.strokeStyle = `rgba(${neutral}, ${proximity * edgeAlpha * 0.15})`
+            ctx.lineWidth = 0.5
+          }
+          ctx.beginPath()
+          ctx.moveTo(pos[i].x, pos[i].y)
+          ctx.lineTo(pos[j].x, pos[j].y)
+          ctx.stroke()
+        }
+      }
+      ctx.restore()
+    }
+
+    // ── Pass 2: particles ─────────────────────────────────────────────────────
+    for (let i = 0; i < pts.length; i++) {
+      const pt = pts[i]
+      const { x: px, y: py } = pos[i]
 
       const isHov = hovIdx === i
       const baseR = pt.status === 'active' ? 5.5 : 3.5
