@@ -41,6 +41,7 @@ describe('dispatch — inventory', () => {
     // adds the wiring before the catch-all silently 404s the new path.
     expect(Object.values(ROUTES).sort()).toEqual(
       [
+        '/api/admin-chat',
         '/api/auth/login',
         '/api/auth/logout',
         '/api/auth/session',
@@ -88,6 +89,7 @@ describe('dispatch — inventory', () => {
       ROUTES.enableAdminAuth,
       ROUTES.proxyInfo,
       ROUTES.adminReadiness,
+      ROUTES.adminChat,
       `${ROUTES.evalReportPrefix}some-run-id`,
     ]
     for (const path of knownPaths) {
