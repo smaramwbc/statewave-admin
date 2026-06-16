@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { AlertTriangle, Trash2, X, Search, Zap } from 'lucide-react'
+import { AlertTriangle, Trash2, X, Search, Zap, GitBranch, Clock, Shield, ScatterChart, Receipt } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTheme } from '../lib/theme'
 import {
   Tabs,
   TabPanel,
@@ -30,18 +31,32 @@ import {
   deleteSubject,
   simulateRetrieval,
   fetchSubjectActivity,
+  fetchCompilerTrace,
+  fetchMemoryConflicts,
+  fetchMemoryTimeline,
+  runPolicySandbox,
+  fetchMemoryClusters,
+  fetchSubjectReceipts,
+  fetchReceiptRegression,
   type SubjectDetailResponse,
   type MemoryListItem,
   type EpisodeListItem,
   type SessionListItem,
   type RetrievalSimulateResponse,
   type ActivityResponse,
+  type CompilerTraceResponse,
+  type ConflictsResponse,
+  type MemoryTimelineResponse,
+  type PolicySandboxResponse,
+  type MemoryClustersResponse,
+  type AdminReceiptListResponse,
+  type RegressionResponse,
 } from '../lib/api'
 
 const PAGE_SIZE = 50
 
 // Valid tab values for URL persistence
-const VALID_TABS = ['overview', 'memories', 'episodes', 'sessions', 'retrieval'] as const
+const VALID_TABS = ['overview', 'memories', 'episodes', 'sessions', 'retrieval', 'conflicts', 'timeline', 'policy', 'clusters', 'receipts'] as const
 type TabId = (typeof VALID_TABS)[number]
 
 export function SubjectDetailPage() {
@@ -210,6 +225,11 @@ export function SubjectDetailPage() {
     { id: 'episodes', label: 'Episodes', count: detail.summary.episode_count },
     { id: 'sessions', label: 'Sessions', count: detail.summary.session_count },
     { id: 'retrieval', label: 'Retrieval' },
+    { id: 'conflicts', label: 'Conflicts' },
+    { id: 'timeline', label: 'Timeline' },
+    { id: 'policy', label: 'Policy' },
+    { id: 'clusters', label: 'Clusters' },
+    { id: 'receipts', label: 'Receipts' },
   ]
 
   return (
@@ -338,6 +358,21 @@ export function SubjectDetailPage() {
           subjectId={detail.subject_id}
           tenantId={detail.tenant_id}
         />
+      </TabPanel>
+      <TabPanel isActive={activeTab === 'conflicts'}>
+        <ConflictsTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+      </TabPanel>
+      <TabPanel isActive={activeTab === 'timeline'}>
+        <TimelineTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+      </TabPanel>
+      <TabPanel isActive={activeTab === 'policy'}>
+        <PolicyTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+      </TabPanel>
+      <TabPanel isActive={activeTab === 'clusters'}>
+        <ClustersTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
+      </TabPanel>
+      <TabPanel isActive={activeTab === 'receipts'}>
+        <ReceiptsTab subjectId={detail.subject_id} tenantId={detail.tenant_id} />
       </TabPanel>
 
       <Modal
@@ -556,6 +591,7 @@ function MemoriesTab({
   const [sourceEpisodesMemory, setSourceEpisodesMemory] = useState<MemoryListItem | null>(null)
   const [selectedEpisode, setSelectedEpisode] = useState<EpisodeListItem | null>(null)
   const [provenanceMemory, setProvenanceMemory] = useState<MemoryListItem | null>(null)
+  const [traceMemory, setTraceMemory] = useState<MemoryListItem | null>(null)
   // Navigation context
   const [navigationContext, setNavigationContext] = useState<string | null>(null)
 
@@ -746,6 +782,15 @@ function MemoriesTab({
               >
                 Provenance →
               </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setTraceMemory(memory)
+                }}
+                className="text-sky-400 hover:text-sky-300 underline underline-offset-2 decoration-dashed cursor-pointer"
+              >
+                Trace →
+              </button>
             </div>
           </div>
         ))}
@@ -810,6 +855,16 @@ function MemoriesTab({
           tenantId={tenantId}
           memoryId={provenanceMemory.id}
           onClose={() => setProvenanceMemory(null)}
+        />
+      )}
+
+      {/* Compiler Trace Modal */}
+      {traceMemory && (
+        <CompilerTraceModal
+          subjectId={subjectId}
+          tenantId={tenantId}
+          memoryId={traceMemory.id}
+          onClose={() => setTraceMemory(null)}
         />
       )}
     </div>
@@ -1403,18 +1458,39 @@ function ProvenanceModal({
   )
 }
 
-// ─── Activity Heatmap ─────────────────────────────────────────────────────────
+// ─── Activity Heatmap (GitHub-style) ─────────────────────────────────────────
+
+const HEATMAP_LEVELS = [
+  'bg-[var(--theme-surface-1)] border border-[var(--theme-border)]/50',
+  'bg-emerald-500/20',
+  'bg-emerald-500/45',
+  'bg-emerald-500/70',
+  'bg-emerald-500',
+] as const
+
+function cellLevel(count: number, max: number): 0 | 1 | 2 | 3 | 4 {
+  if (count === 0) return 0
+  const pct = count / max
+  if (pct < 0.15) return 1
+  if (pct < 0.40) return 2
+  if (pct < 0.70) return 3
+  return 4
+}
+
+type HeatmapDay = { date: string; episode_count: number; memory_count: number }
 
 function ActivityHeatmap({ subjectId }: { subjectId: string }) {
   const [activity, setActivity] = useState<ActivityResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [hoveredCell, setHoveredCell] = useState<{ day: HeatmapDay; x: number; y: number } | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetchSubjectActivity(subjectId, { days: 91 })
+    fetchSubjectActivity(subjectId, { days: 365 })
       .then((r) => { if (!cancelled) setActivity(r) })
-      .catch(() => { /* non-fatal — Overview still renders */ })
+      .catch(() => { /* non-fatal */ })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [subjectId])
@@ -1422,8 +1498,8 @@ function ActivityHeatmap({ subjectId }: { subjectId: string }) {
   if (loading) {
     return (
       <section>
-        <h3 className="text-sm font-medium text-theme-primary mb-3">Activity (90 days)</h3>
-        <div className="h-20 rounded-xl border border-theme-border bg-[var(--theme-card-bg)] animate-pulse" />
+        <div className="h-4 w-48 rounded bg-theme-surface-1 animate-pulse mb-3" />
+        <div className="h-[130px] rounded-xl border border-theme-border bg-[var(--theme-card-bg)] animate-pulse" />
       </section>
     )
   }
@@ -1431,65 +1507,145 @@ function ActivityHeatmap({ subjectId }: { subjectId: string }) {
   if (!activity || !Array.isArray(activity.days) || activity.days.length === 0) return null
 
   const maxCount = Math.max(...activity.days.map((d) => d.episode_count), 1)
+  const totalEpisodes = activity.days.reduce((s, d) => s + d.episode_count, 0)
 
-  function cellColor(count: number): string {
-    if (count === 0) return 'bg-theme-surface-1 opacity-60'
-    const pct = count / maxCount
-    if (pct < 0.2) return 'bg-emerald-500/20'
-    if (pct < 0.4) return 'bg-emerald-500/40'
-    if (pct < 0.7) return 'bg-emerald-500/65'
-    return 'bg-emerald-500'
-  }
-
-  // Group days into week columns (Sunday-first so each column is a week)
-  // Pad the start so column 0 starts on a Sunday
   const days = activity.days
   const firstDay = new Date(days[0].date + 'T00:00:00Z')
-  const dowOffset = firstDay.getUTCDay() // 0=Sun
-  const padded = Array(dowOffset).fill(null).concat(days)
-  const weeks: (typeof days[number] | null)[][] = []
-  for (let i = 0; i < padded.length; i += 7) {
-    weeks.push(padded.slice(i, i + 7))
+  const dowOffset = firstDay.getUTCDay()
+  const padded: (HeatmapDay | null)[] = [...Array(dowOffset).fill(null), ...(days as HeatmapDay[])]
+  const weeks: (HeatmapDay | null)[][] = []
+  for (let i = 0; i < padded.length; i += 7) weeks.push(padded.slice(i, i + 7))
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+  const monthLabels: (string | null)[] = weeks.map((week, wi) => {
+    const first = week.find((d) => d !== null)
+    if (!first) return null
+    const m = new Date(first.date + 'T00:00:00Z').getUTCMonth()
+    if (wi === 0) return MONTHS[m]
+    const prevFirst = weeks[wi - 1].find((d) => d !== null)
+    if (!prevFirst) return MONTHS[m]
+    const pm = new Date(prevFirst.date + 'T00:00:00Z').getUTCMonth()
+    return m !== pm ? MONTHS[m] : null
+  })
+
+  const ROW_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', '']
+
+  function formatDate(dateStr: string): string {
+    const d = new Date(dateStr + 'T00:00:00Z')
+    return `${DAYS_FULL[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
   }
 
-  const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+  function activityLabel(lvl: 0 | 1 | 2 | 3 | 4): string {
+    return ['No activity', 'Low activity', 'Some activity', 'Good activity', 'High activity'][lvl]
+  }
+
+  function handleCellEnter(e: React.MouseEvent<HTMLDivElement>, day: HeatmapDay) {
+    const container = containerRef.current
+    if (!container) return
+    const cRect = container.getBoundingClientRect()
+    const eRect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+    // Position tooltip above the cell, centred horizontally
+    setHoveredCell({
+      day,
+      x: eRect.left - cRect.left + eRect.width / 2,
+      y: eRect.top - cRect.top,
+    })
+  }
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-theme-primary mb-3">Activity — last 90 days</h3>
-      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4 overflow-x-auto">
-        <div className="flex gap-1.5 min-w-max">
-          {/* Day-of-week labels */}
-          <div className="flex flex-col gap-1 mr-1 justify-center">
-            {dayLabels.map((d, i) => (
-              <span key={i} className="text-[9px] text-theme-muted w-3 text-center leading-3">{d}</span>
+      <h3 className="text-sm font-medium text-theme-primary mb-3">
+        {totalEpisodes.toLocaleString()} episode{totalEpisodes !== 1 ? 's' : ''} in the last year
+      </h3>
+      <div
+        ref={containerRef}
+        className="relative rounded-xl border border-theme-border bg-[var(--theme-card-bg)] px-4 pt-3 pb-4 overflow-x-auto"
+        onMouseLeave={() => setHoveredCell(null)}
+      >
+        {/* Tooltip */}
+        {hoveredCell && (
+          <div
+            className="absolute z-20 pointer-events-none -translate-x-1/2 -translate-y-full mb-1.5 rounded-lg border border-theme-border bg-[var(--theme-card-bg)] shadow-xl px-3 py-2.5 text-xs min-w-[180px]"
+            style={{ left: hoveredCell.x, top: hoveredCell.y - 8 }}
+          >
+            <p className="font-medium text-theme-primary mb-1.5">{formatDate(hoveredCell.day.date)}</p>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-theme-muted">Episodes</span>
+                <span className="font-medium text-theme-primary tabular-nums">{hoveredCell.day.episode_count}</span>
+              </div>
+              {hoveredCell.day.memory_count > 0 && (
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-theme-muted">Memories</span>
+                  <span className="font-medium text-theme-primary tabular-nums">{hoveredCell.day.memory_count}</span>
+                </div>
+              )}
+              {/* Mini bar */}
+              {hoveredCell.day.episode_count > 0 && (
+                <div className="mt-2 pt-1.5 border-t border-theme-border/50">
+                  <div className="h-1.5 rounded-full bg-[var(--theme-surface-1)] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-all"
+                      style={{ width: `${Math.round((hoveredCell.day.episode_count / maxCount) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-theme-muted mt-1">
+                    {activityLabel(cellLevel(hoveredCell.day.episode_count, maxCount))}
+                    {hoveredCell.day.episode_count > 1 && ` · ${((hoveredCell.day.episode_count / maxCount) * 100).toFixed(0)}% of peak`}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-[3px] min-w-max">
+          {/* Day-of-week label column */}
+          <div className="flex flex-col gap-[3px] mr-1.5">
+            <div className="h-4" />
+            {ROW_LABELS.map((label, i) => (
+              <div key={i} className="w-[11px] h-[11px] flex items-center justify-end">
+                <span className="text-[9px] text-theme-muted leading-none whitespace-nowrap -mr-0.5" style={{ minWidth: '26px', textAlign: 'right' }}>
+                  {label}
+                </span>
+              </div>
             ))}
           </div>
+
+          {/* Week columns */}
           {weeks.map((week, wi) => (
-            <div key={wi} className="flex flex-col gap-1">
+            <div key={wi} className="flex flex-col gap-[3px]">
+              <div className="h-4 flex items-end pb-0.5">
+                {monthLabels[wi] && (
+                  <span className="text-[10px] text-theme-muted leading-none whitespace-nowrap">
+                    {monthLabels[wi]}
+                  </span>
+                )}
+              </div>
               {week.map((day, di) =>
                 day === null ? (
-                  <div key={di} className="w-3 h-3" />
+                  <div key={di} className="w-[11px] h-[11px]" />
                 ) : (
                   <div
                     key={di}
-                    title={`${day.date}: ${day.episode_count} episode${day.episode_count !== 1 ? 's' : ''}${day.memory_count > 0 ? `, ${day.memory_count} memories` : ''}`}
-                    className={`w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${cellColor(day.episode_count)}`}
+                    onMouseEnter={(e) => handleCellEnter(e, day)}
+                    className={`w-[11px] h-[11px] rounded-[2px] cursor-default hover:ring-1 hover:ring-emerald-500/60 hover:scale-125 transition-transform ${HEATMAP_LEVELS[cellLevel(day.episode_count, maxCount)]}`}
                   />
                 )
               )}
             </div>
           ))}
         </div>
-        <div className="flex items-center gap-2 mt-3">
-          <span className="text-[10px] text-theme-muted">Less</span>
-          {[0, 0.15, 0.35, 0.65, 1].map((pct, i) => (
-            <div
-              key={i}
-              className={`w-3 h-3 rounded-[2px] ${cellColor(Math.round(pct * maxCount))}`}
-            />
+
+        {/* Legend */}
+        <div className="flex items-center justify-end gap-[3px] mt-3">
+          <span className="text-[10px] text-theme-muted mr-1">Less</span>
+          {([0, 1, 2, 3, 4] as const).map((lvl) => (
+            <div key={lvl} className={`w-[11px] h-[11px] rounded-[2px] ${HEATMAP_LEVELS[lvl]}`} />
           ))}
-          <span className="text-[10px] text-theme-muted">More</span>
+          <span className="text-[10px] text-theme-muted ml-1">More</span>
         </div>
       </div>
     </section>
@@ -1692,6 +1848,895 @@ function RetrievalTab({ subjectId, tenantId }: { subjectId: string; tenantId: st
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Compiler Trace Modal ─────────────────────────────────────────────────────
+
+function CompilerTraceModal({
+  subjectId,
+  tenantId,
+  memoryId,
+  onClose,
+}: {
+  subjectId: string
+  tenantId: string | null
+  memoryId: string
+  onClose: () => void
+}) {
+  const [data, setData] = useState<CompilerTraceResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetchCompilerTrace(subjectId, memoryId, { tenantId: tenantId ?? undefined })
+      .then((r) => { if (!cancelled) { setData(r); setLoading(false) } })
+      .catch((e) => { if (!cancelled) { setError(e.message); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [subjectId, memoryId, tenantId])
+
+  return (
+    <Modal open onClose={onClose} title="Compiler Trace">
+      {loading && <LoadingState rows={3} message="Loading trace…" />}
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {data && (
+        <div className="space-y-5 text-sm">
+          {/* Memory info */}
+          <section className="rounded-lg border border-theme-border bg-[var(--theme-surface-1)] p-4 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="muted">{data.kind}</Badge>
+              <Badge variant={data.status === 'active' ? 'success' : 'warning'}>{data.status}</Badge>
+              <span className="text-[10px] text-theme-muted font-mono ml-auto">{data.memory_id.slice(0, 8)}</span>
+            </div>
+            <p className="text-theme-primary text-sm leading-relaxed">{data.content}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-theme-muted pt-1 border-t border-theme-border/50">
+              <span>Confidence: {(data.confidence * 100).toFixed(0)}%</span>
+              <span>Created: {new Date(data.created_at).toLocaleString()}</span>
+            </div>
+          </section>
+
+          {/* Compiler metadata */}
+          <section>
+            <h4 className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">
+              Compiler metadata
+            </h4>
+            <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3 space-y-1 text-xs">
+              <div className="flex gap-2">
+                <span className="text-theme-muted w-20 shrink-0">Compiler</span>
+                <span className="text-sky-300 font-mono">{data.compiler}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-theme-muted w-20 shrink-0">Model</span>
+                <span className="text-sky-300 font-mono">{data.model ?? '(not recorded)'}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-theme-muted w-20 shrink-0">Source eps</span>
+                <span className="text-theme-secondary">{data.source_episode_count}</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Reconstructed input */}
+          <section>
+            <h4 className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">
+              Reconstructed input — {data.reconstructed_input.length} episode{data.reconstructed_input.length !== 1 ? 's' : ''}
+            </h4>
+            {data.reconstructed_input.length === 0 ? (
+              <p className="text-xs text-theme-muted">No source episodes recorded (pre-v0.9 memory).</p>
+            ) : (
+              <div className="space-y-2">
+                {data.reconstructed_input.map((ep) => (
+                  <div key={ep.id} className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-3 space-y-1">
+                    <div className="flex items-center gap-2 text-[10px] text-theme-muted">
+                      <span className="font-mono">{ep.id.slice(0, 8)}</span>
+                      <Badge variant="muted">{ep.type}</Badge>
+                      <span className="text-theme-muted">{ep.source}</span>
+                      <span className="ml-auto">{new Date(ep.created_at).toLocaleString()}</span>
+                    </div>
+                    <p className="text-xs text-theme-secondary">{ep.text_preview || '(no text content)'}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ─── Conflicts Tab ────────────────────────────────────────────────────────────
+
+function ConflictsTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
+  const [threshold, setThreshold] = useState(0.85)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<ConflictsResponse | null>(null)
+
+  async function run() {
+    setLoading(true)
+    try {
+      const res = await fetchMemoryConflicts(subjectId, {
+        threshold,
+        limit: 50,
+        tenantId: tenantId ?? undefined,
+      })
+      setResult(res)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Conflict scan failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+        <div className="flex gap-3 items-start">
+          <GitBranch className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-theme-primary">Memory Conflict Detector</p>
+            <p className="text-xs text-theme-muted mt-0.5">
+              Scans all active memories by cosine similarity. Pairs above the threshold are potential
+              duplicates or contradictions — review them to tune the compiler.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4">
+        <label className="flex items-center gap-2 text-xs text-theme-muted">
+          <span>Similarity threshold</span>
+          <input
+            type="number"
+            min={0.5}
+            max={1.0}
+            step={0.01}
+            value={threshold}
+            onChange={(e) => setThreshold(parseFloat(e.target.value))}
+            className="w-20 px-2 py-1 rounded border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary text-xs focus:outline-none focus:border-amber-500/50 tabular-nums"
+          />
+        </label>
+        <Button variant="primary" onClick={run} disabled={loading}>
+          {loading ? 'Scanning…' : 'Scan for conflicts'}
+        </Button>
+      </div>
+
+      {result && (
+        <div className="space-y-3">
+          <div className="flex gap-3 text-xs text-theme-muted flex-wrap">
+            <span>Checked <strong className="text-theme-primary">{result.total_memories_checked}</strong> memories</span>
+            <span className="text-theme-border">|</span>
+            <span><strong className="text-amber-400">{result.pairs.length}</strong> pair{result.pairs.length !== 1 ? 's' : ''} above {(threshold * 100).toFixed(0)}%</span>
+          </div>
+
+          {!result.embedding_available && (
+            <div className="rounded-lg p-3 bg-amber-500/5 border border-amber-500/20 text-xs text-amber-400">
+              {result.error}
+            </div>
+          )}
+
+          {result.pairs.length === 0 && result.embedding_available && (
+            <EmptyState
+              title="No conflicts found"
+              description={`No memory pairs exceed ${(threshold * 100).toFixed(0)}% similarity.`}
+            />
+          )}
+
+          {result.pairs.map((pair, i) => (
+            <div key={i} className="rounded-xl border border-amber-500/20 bg-[var(--theme-card-bg)] p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="flex-1 h-1.5 rounded-full bg-theme-surface-1 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-amber-400 transition-all"
+                    style={{ width: `${Math.round(pair.similarity * 100)}%` }}
+                  />
+                </div>
+                <span className="text-xs font-semibold text-amber-400 tabular-nums w-12 text-right">
+                  {(pair.similarity * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-lg border border-theme-border p-3 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="muted">{pair.memory_a_kind}</Badge>
+                    <span className="text-[10px] text-theme-muted font-mono">{pair.memory_a_id.slice(0, 8)}</span>
+                  </div>
+                  <p className="text-xs text-theme-secondary">{pair.memory_a_content}</p>
+                </div>
+                <div className="rounded-lg border border-theme-border p-3 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="muted">{pair.memory_b_kind}</Badge>
+                    <span className="text-[10px] text-theme-muted font-mono">{pair.memory_b_id.slice(0, 8)}</span>
+                  </div>
+                  <p className="text-xs text-theme-secondary">{pair.memory_b_content}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Timeline Tab ─────────────────────────────────────────────────────────────
+
+function TimelineTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
+  const [data, setData] = useState<MemoryTimelineResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [snapshotIdx, setSnapshotIdx] = useState<number | null>(null)
+  const [snapshotData, setSnapshotData] = useState<MemoryTimelineResponse | null>(null)
+  const [snapshotLoading, setSnapshotLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchMemoryTimeline(subjectId, { tenantId: tenantId ?? undefined })
+      .then((r) => { if (!cancelled) { setData(r); setLoading(false) } })
+      .catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [subjectId, tenantId])
+
+  async function scrubTo(idx: number) {
+    if (!data) return
+    setSnapshotIdx(idx)
+    const event = data.events[idx]
+    if (!event) return
+    setSnapshotLoading(true)
+    try {
+      const r = await fetchMemoryTimeline(subjectId, {
+        snapshotAt: event.date + 'T23:59:59Z',
+        tenantId: tenantId ?? undefined,
+      })
+      setSnapshotData(r)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Timeline fetch failed')
+    } finally {
+      setSnapshotLoading(false)
+    }
+  }
+
+  if (loading) return <LoadingState rows={3} message="Loading timeline…" />
+
+  if (!data || data.events.length === 0) {
+    return (
+      <EmptyState title="No timeline data" description="No memories have been compiled yet for this subject." />
+    )
+  }
+
+  const maxAdded = Math.max(...data.events.map((e) => e.memories_added), 1)
+  const selectedEvent = snapshotIdx !== null ? data.events[snapshotIdx] : null
+  const displayData = snapshotData ?? data
+  const displayLabel = selectedEvent ? `at ${selectedEvent.date}` : 'current'
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+        <div className="flex gap-3 items-start">
+          <Clock className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-theme-primary">Memory Timeline Scrubber</p>
+            <p className="text-xs text-theme-muted mt-0.5">
+              Click any bar to see which memories existed at that point in time.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Bar chart timeline */}
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4 overflow-x-auto">
+        <div className="flex items-end gap-1 min-w-max" style={{ height: '80px' }}>
+          {data.events.map((ev, i) => (
+            <button
+              key={ev.date}
+              title={`${ev.date}: +${ev.memories_added} (total ${ev.cumulative_count})`}
+              onClick={() => scrubTo(i)}
+              className={`flex-shrink-0 w-4 rounded-t transition-all hover:opacity-80 ${
+                snapshotIdx === i ? 'bg-blue-400' : 'bg-blue-500/40 hover:bg-blue-500/70'
+              }`}
+              style={{ height: `${Math.max(4, Math.round((ev.memories_added / maxAdded) * 72))}px` }}
+            />
+          ))}
+        </div>
+        <div className="flex justify-between text-[10px] text-theme-muted mt-1">
+          <span>{data.events[0]?.date}</span>
+          <span>{data.events[data.events.length - 1]?.date}</span>
+        </div>
+      </div>
+
+      {/* Snapshot memories */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="text-sm font-medium text-theme-primary">
+            Memories {displayLabel}
+          </h3>
+          {selectedEvent && (
+            <span className="text-xs text-theme-muted">— cumulative total: {selectedEvent.cumulative_count}</span>
+          )}
+          {snapshotIdx !== null && (
+            <button
+              onClick={() => { setSnapshotIdx(null); setSnapshotData(null) }}
+              className="ml-auto text-xs text-accent hover:text-accent-light underline"
+            >
+              Reset to now
+            </button>
+          )}
+        </div>
+        {snapshotLoading ? (
+          <LoadingState rows={2} message="Loading snapshot…" />
+        ) : (
+          <div className="space-y-2">
+            {displayData.memories_at_snapshot.length === 0 ? (
+              <p className="text-xs text-theme-muted">No memories at this point.</p>
+            ) : (
+              displayData.memories_at_snapshot.map((m) => (
+                <div key={m.id} className="rounded-lg border border-theme-border bg-[var(--theme-card-bg)] p-3 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.kind}</Badge>
+                    {m.status !== 'active' && <Badge variant="muted">{m.status}</Badge>}
+                    <span className="text-[10px] text-theme-muted font-mono ml-auto">{m.id.slice(0, 8)}</span>
+                  </div>
+                  <p className="text-xs text-theme-secondary line-clamp-2">{m.content_preview}</p>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Policy Sandbox Tab ───────────────────────────────────────────────────────
+
+const DEFAULT_POLICY_YAML = `version: 1
+metadata:
+  name: sandbox-test
+  description: "Test policy"
+rules:
+  - id: block_pii
+    labels: ["pii.email", "pii.phone"]
+    action: deny
+    description: "Block PII memories"
+`
+
+function PolicyTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
+  const [yaml, setYaml] = useState(DEFAULT_POLICY_YAML)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<PolicySandboxResponse | null>(null)
+
+  async function run() {
+    if (!yaml.trim()) return
+    setLoading(true)
+    try {
+      const res = await runPolicySandbox(subjectId, yaml, { tenantId: tenantId ?? undefined })
+      setResult(res)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Policy sandbox failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const actionColor = (action: string) => {
+    if (action === 'allow') return 'text-emerald-400'
+    if (action === 'deny') return 'text-red-400'
+    return 'text-amber-400'
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+        <div className="flex gap-3 items-start">
+          <Shield className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-theme-primary">Policy Sandbox</p>
+            <p className="text-xs text-theme-muted mt-0.5">
+              Paste a YAML policy bundle and dry-run it against this subject's active memories.
+              The live policy is never modified.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4 space-y-3">
+        <textarea
+          value={yaml}
+          onChange={(e) => setYaml(e.target.value)}
+          rows={12}
+          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-theme-border bg-[var(--theme-surface-1)] text-theme-primary placeholder:text-theme-muted focus:outline-none focus:border-emerald-500/50 resize-y"
+          placeholder="Paste YAML policy here…"
+        />
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={run} disabled={loading || !yaml.trim()}>
+            {loading ? 'Running…' : 'Run sandbox'}
+          </Button>
+        </div>
+      </div>
+
+      {result && (
+        <div className="space-y-3">
+          {result.error ? (
+            <div className="rounded-lg p-3 bg-red-500/5 border border-red-500/20 text-xs text-red-400">
+              {result.error}
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-4 text-xs text-theme-muted flex-wrap">
+                <span>Total: <strong className="text-theme-primary">{result.total_memories}</strong></span>
+                <span className="text-theme-border">|</span>
+                <span className="text-emerald-400"><strong>{result.allowed}</strong> allowed</span>
+                <span className="text-red-400"><strong>{result.denied}</strong> denied</span>
+                <span className="text-amber-400"><strong>{result.redacted}</strong> redacted</span>
+              </div>
+              <div className="space-y-2">
+                {result.results.map((r) => (
+                  <div
+                    key={r.memory_id}
+                    className={`rounded-lg border p-3 space-y-1 ${
+                      r.action === 'allow'
+                        ? 'border-theme-border/50 bg-[var(--theme-card-bg)]'
+                        : r.action === 'deny'
+                        ? 'border-red-500/20 bg-red-500/5'
+                        : 'border-amber-500/20 bg-amber-500/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                      <Badge variant="muted">{r.kind}</Badge>
+                      <span className={`font-semibold uppercase ${actionColor(r.action)}`}>{r.action}</span>
+                      {r.rule_id && <span className="text-theme-muted font-mono">rule: {r.rule_id}</span>}
+                      {r.matched_labels.length > 0 && (
+                        <span className="text-theme-muted">labels: {r.matched_labels.join(', ')}</span>
+                      )}
+                      <span className="text-theme-muted font-mono ml-auto">{r.memory_id.slice(0, 8)}</span>
+                    </div>
+                    <p className="text-xs text-theme-secondary line-clamp-2">{r.content_preview}</p>
+                    {r.sensitivity_labels.length > 0 && (
+                      <div className="flex gap-1 flex-wrap">
+                        {r.sensitivity_labels.map((l) => (
+                          <span key={l} className="text-[9px] px-1.5 py-0.5 rounded bg-theme-surface-1 text-theme-muted font-mono">{l}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Clusters Tab ─────────────────────────────────────────────────────────────
+
+// Kind → HSL config matching HeroBackground colour palette
+const CLUSTER_KIND_COLOR: Record<string, { h: number; s: number }> = {
+  profile_fact:    { h: 265, s: 85 },
+  episode_summary: { h: 190, s: 90 },
+  procedure:       { h: 160, s: 78 },
+  artifact_ref:    { h: 22,  s: 92 },
+}
+
+function clusterHsl(kind: string, status: string, l: number, a: number): string {
+  if (status !== 'active') return `hsla(220, 10%, 50%, ${a})`
+  const c = CLUSTER_KIND_COLOR[kind] ?? { h: 265, s: 70 }
+  return `hsla(${c.h}, ${c.s}%, ${l}%, ${a})`
+}
+
+function MemoryClusterCanvas({ points }: { points: ClusterPoint[] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const frameRef = useRef<number>(0)
+  const startTimeRef = useRef<number>(0)
+  const ptRef = useRef(points)
+  const startPosRef = useRef<{ x: number; y: number }[]>([])
+  const hoveredIdxRef = useRef<number | null>(null)
+  const isDarkRef = useRef<boolean>(false)
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; pt: ClusterPoint } | null>(null)
+  const { resolvedTheme } = useTheme()
+
+  useEffect(() => { isDarkRef.current = resolvedTheme === 'dark' }, [resolvedTheme])
+
+  useEffect(() => {
+    ptRef.current = points
+    startPosRef.current = points.map(() => ({ x: Math.random(), y: Math.random() }))
+    startTimeRef.current = 0
+  }, [points])
+
+  const draw = useCallback((time: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    if (startTimeRef.current === 0) startTimeRef.current = time
+    const elapsed = (time - startTimeRef.current) * 0.001
+    const raw = Math.min(elapsed / 1.8, 1)
+    // Cubic ease-in-out
+    const progress = raw < 0.5 ? 4 * raw ** 3 : 1 - (-2 * raw + 2) ** 3 / 2
+
+    const r = canvas.getBoundingClientRect()
+    const W = r.width, H = r.height
+    const M = 32
+
+    ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.restore()
+
+    const pts = ptRef.current
+    const starts = startPosRef.current
+    const dark = isDarkRef.current
+    const hovIdx = hoveredIdxRef.current
+
+    for (let i = 0; i < pts.length; i++) {
+      const pt = pts[i]
+      const s = starts[i]
+      const tx = ((pt.x + 1) / 2) * (W - M * 2) + M
+      const ty = ((-pt.y + 1) / 2) * (H - M * 2) + M
+      const px = s.x * W + (tx - s.x * W) * progress
+      const py = s.y * H + (ty - s.y * H) * progress
+
+      const isHov = hovIdx === i
+      const baseR = pt.status === 'active' ? 5.5 : 3.5
+      const dotR = isHov ? baseR * 1.7 : baseR
+
+      ctx.save()
+
+      if (progress > 0.2) {
+        const glowR = dotR * (3 + progress * 1.5)
+        const g = ctx.createRadialGradient(px, py, 0, px, py, glowR)
+        g.addColorStop(0, clusterHsl(pt.kind, pt.status, dark ? 70 : 55, 0.16 * progress))
+        g.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.beginPath()
+        ctx.arc(px, py, glowR, 0, Math.PI * 2)
+        ctx.fillStyle = g
+        ctx.fill()
+      }
+
+      ctx.beginPath()
+      ctx.arc(px, py, dotR, 0, Math.PI * 2)
+      ctx.fillStyle = isHov
+        ? clusterHsl(pt.kind, pt.status, dark ? 92 : 30, 1)
+        : clusterHsl(pt.kind, pt.status, dark ? 72 : 46, 0.8 + progress * 0.15)
+      ctx.fill()
+
+      if (isHov) {
+        ctx.beginPath()
+        ctx.arc(px, py, dotR + 5, 0, Math.PI * 2)
+        ctx.strokeStyle = clusterHsl(pt.kind, pt.status, 62, 0.7)
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+      }
+
+      ctx.restore()
+    }
+
+    frameRef.current = requestAnimationFrame(draw)
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio, 2)
+      const r = canvas.getBoundingClientRect()
+      canvas.width = r.width * dpr
+      canvas.height = r.height * dpr
+      const ctx = canvas.getContext('2d')
+      if (ctx) ctx.scale(dpr, dpr)
+    }
+    resize()
+    window.addEventListener('resize', resize)
+    frameRef.current = requestAnimationFrame(draw)
+    return () => {
+      window.removeEventListener('resize', resize)
+      cancelAnimationFrame(frameRef.current)
+    }
+  }, [draw])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
+    const W = rect.width, H = rect.height, M = 32
+    const pts = ptRef.current
+    let found: number | null = null
+    for (let i = 0; i < pts.length; i++) {
+      const tx = ((pts[i].x + 1) / 2) * (W - M * 2) + M
+      const ty = ((-pts[i].y + 1) / 2) * (H - M * 2) + M
+      if (Math.sqrt((mx - tx) ** 2 + (my - ty) ** 2) <= 12) { found = i; break }
+    }
+    hoveredIdxRef.current = found
+    setTooltip(found !== null ? { x: mx, y: my, pt: pts[found] } : null)
+  }, [])
+
+  return (
+    <div className="relative">
+      <canvas
+        ref={canvasRef}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => { hoveredIdxRef.current = null; setTooltip(null) }}
+        className="w-full rounded-xl border border-theme-border bg-[var(--theme-card-bg)]"
+        style={{ height: '460px', cursor: tooltip ? 'crosshair' : 'default' }}
+      />
+      {tooltip && (
+        <div
+          className="absolute z-20 pointer-events-none rounded-lg border border-theme-border bg-[var(--theme-card-bg)] shadow-xl p-3 text-xs w-[260px]"
+          style={{
+            left: tooltip.x + 14,
+            top: Math.max(8, tooltip.y - 44),
+          }}
+        >
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <Badge variant="muted">{tooltip.pt.kind}</Badge>
+            {tooltip.pt.status !== 'active' && (
+              <Badge variant="warning">{tooltip.pt.status}</Badge>
+            )}
+            <span className="text-theme-muted font-mono">{tooltip.pt.memory_id.slice(0, 8)}</span>
+          </div>
+          <p className="text-theme-secondary leading-relaxed line-clamp-4 mb-2">
+            {tooltip.pt.content_preview}
+          </p>
+          <div className="flex gap-3 text-theme-muted border-t border-theme-border/50 pt-1.5">
+            <span>{(tooltip.pt.confidence * 100).toFixed(0)}% conf</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClustersTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
+  const [data, setData] = useState<MemoryClustersResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchMemoryClusters(subjectId, { tenantId: tenantId ?? undefined })
+      .then((r) => { if (!cancelled) { setData(r); setLoading(false) } })
+      .catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [subjectId, tenantId])
+
+  if (loading) return <LoadingState rows={2} message="Computing clusters…" />
+
+  const LEGEND_KINDS = [
+    { kind: 'profile_fact', label: 'profile fact' },
+    { kind: 'episode_summary', label: 'episode summary' },
+    { kind: 'procedure', label: 'procedure' },
+    { kind: 'artifact_ref', label: 'artifact ref' },
+  ]
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+        <div className="flex gap-3 items-start">
+          <ScatterChart className="w-4 h-4 text-purple-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-theme-primary">Memory Cluster View</p>
+            <p className="text-xs text-theme-muted mt-0.5">
+              PCA projection of memory embeddings to 2D. Nearby particles share semantic meaning.
+              Hover to inspect.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {(!data || !data.embedding_available) && (
+        <div className="rounded-lg p-3 bg-amber-500/5 border border-amber-500/20 text-xs text-amber-400">
+          {data?.error ?? 'Cluster view unavailable.'}
+        </div>
+      )}
+
+      {data && data.embedding_available && data.points.length === 0 && (
+        <EmptyState title="No embeddings" description="Compile this subject to generate memory embeddings." />
+      )}
+
+      {data && data.points.length > 0 && (
+        <>
+          <MemoryClusterCanvas points={data.points} />
+
+          {/* Legend */}
+          <div className="flex flex-wrap gap-4 text-[11px]">
+            {LEGEND_KINDS.map(({ kind, label }) => (
+              <div key={kind} className="flex items-center gap-1.5">
+                <div
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{
+                    background: `hsl(${CLUSTER_KIND_COLOR[kind]?.h ?? 265}, ${CLUSTER_KIND_COLOR[kind]?.s ?? 70}%, 62%)`,
+                  }}
+                />
+                <span className="text-theme-muted">{label}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-gray-500" />
+              <span className="text-theme-muted">superseded / inactive</span>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Receipts Tab ─────────────────────────────────────────────────────────────
+
+function ReceiptsTab({ subjectId, tenantId }: { subjectId: string; tenantId: string | null }) {
+  const [receipts, setReceipts] = useState<AdminReceiptListResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [regression, setRegression] = useState<RegressionResponse | null>(null)
+  const [regressionLoading, setRegressionLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchSubjectReceipts(subjectId, { limit: 50, tenantId: tenantId ?? undefined })
+      .then((r) => { if (!cancelled) { setReceipts(r); setLoading(false) } })
+      .catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [subjectId, tenantId])
+
+  async function runRegression(receiptId: string) {
+    setSelectedId(receiptId)
+    setRegression(null)
+    setRegressionLoading(true)
+    try {
+      const r = await fetchReceiptRegression(subjectId, receiptId, { tenantId: tenantId ?? undefined })
+      setRegression(r)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Regression test failed')
+    } finally {
+      setRegressionLoading(false)
+    }
+  }
+
+  if (loading) return <LoadingState rows={3} message="Loading receipts…" />
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-theme-border bg-[var(--theme-card-bg)] p-4">
+        <div className="flex gap-3 items-start">
+          <Receipt className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-theme-primary">Retrieval Regression Tester</p>
+            <p className="text-xs text-theme-muted mt-0.5">
+              Select a historical receipt to diff its memory set against current state — showing what
+              changed (dropped, new, stable) since that assembly.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {(!receipts || receipts.items.length === 0) && (
+        <EmptyState
+          title="No receipts"
+          description="Receipts are emitted by get_context calls. None recorded yet for this subject."
+        />
+      )}
+
+      {receipts && receipts.items.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Receipt list */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold text-theme-muted uppercase tracking-wide">
+              {receipts.total} receipt{receipts.total !== 1 ? 's' : ''}
+            </h3>
+            {receipts.items.map((r) => (
+              <button
+                key={r.receipt_id}
+                onClick={() => runRegression(r.receipt_id)}
+                className={`w-full text-left rounded-lg border p-3 transition-colors space-y-1 ${
+                  selectedId === r.receipt_id
+                    ? 'border-indigo-500/40 bg-indigo-500/5'
+                    : 'border-theme-border bg-[var(--theme-card-bg)] hover:border-theme-border-hover'
+                }`}
+              >
+                <div className="flex items-center gap-2 text-[10px] text-theme-muted">
+                  <span className="font-mono text-theme-secondary">{r.receipt_id}</span>
+                  <Badge variant="muted">{r.mode}</Badge>
+                  <span className="ml-auto">{r.memory_count} mem</span>
+                </div>
+                <div className="text-[10px] text-theme-muted">
+                  {new Date(r.as_of).toLocaleString()}
+                  <span className="mx-1">·</span>
+                  {(r.context_size_bytes / 1024).toFixed(1)} KB
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Regression result */}
+          <div>
+            {regressionLoading && <LoadingState rows={3} message="Running regression…" />}
+            {regression && !regressionLoading && (
+              <div className="space-y-4">
+                <div className="flex gap-4 text-xs text-theme-muted flex-wrap">
+                  <span>as of {new Date(regression.receipt_as_of).toLocaleString()}</span>
+                </div>
+
+                {/* Stable */}
+                <section>
+                  <h4 className="text-xs font-semibold text-emerald-400 mb-2">
+                    Stable ({regression.stable.length})
+                  </h4>
+                  {regression.stable.length === 0 ? (
+                    <p className="text-xs text-theme-muted">—</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {regression.stable.map((m) => (
+                        <div key={m.memory_id} className="rounded border border-emerald-500/20 bg-emerald-500/5 p-2">
+                          <div className="flex items-center gap-2 text-[10px] mb-0.5">
+                            <Badge variant="muted">{m.kind}</Badge>
+                            <span className="font-mono text-theme-muted">{m.memory_id.slice(0, 8)}</span>
+                          </div>
+                          <p className="text-xs text-theme-secondary line-clamp-2">{m.content_preview}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* Dropped */}
+                <section>
+                  <h4 className="text-xs font-semibold text-red-400 mb-2">
+                    Dropped ({regression.dropped.length})
+                  </h4>
+                  {regression.dropped.length === 0 ? (
+                    <p className="text-xs text-theme-muted">—</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {regression.dropped.map((m) => (
+                        <div key={m.memory_id} className="rounded border border-red-500/20 bg-red-500/5 p-2">
+                          <div className="flex items-center gap-2 text-[10px] mb-0.5">
+                            <Badge variant="muted">{m.kind}</Badge>
+                            <span className="font-semibold text-red-400">{m.change}</span>
+                            <span className="font-mono text-theme-muted">{m.memory_id.slice(0, 8)}</span>
+                          </div>
+                          <p className="text-xs text-theme-secondary line-clamp-2">{m.content_preview}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* New */}
+                <section>
+                  <h4 className="text-xs font-semibold text-blue-400 mb-2">
+                    New since receipt ({regression.new_memories.length})
+                  </h4>
+                  {regression.new_memories.length === 0 ? (
+                    <p className="text-xs text-theme-muted">—</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {regression.new_memories.map((m) => (
+                        <div key={m.memory_id} className="rounded border border-blue-500/20 bg-blue-500/5 p-2">
+                          <div className="flex items-center gap-2 text-[10px] mb-0.5">
+                            <Badge variant="muted">{m.kind}</Badge>
+                            <span className="font-mono text-theme-muted">{m.memory_id.slice(0, 8)}</span>
+                            <span className="text-theme-muted ml-auto">{new Date(m.created_at).toLocaleDateString()}</span>
+                          </div>
+                          <p className="text-xs text-theme-secondary line-clamp-2">{m.content_preview}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
