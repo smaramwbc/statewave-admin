@@ -116,7 +116,7 @@ export function useAdminChat(subjects: string[]): UseAdminChatReturn {
           }
           if (!res.ok || data.error) {
             const msg = data.error === 'llm_not_configured'
-              ? 'LLM not configured. Set ADMIN_EVAL_LLM_PROVIDER, ADMIN_EVAL_LLM_MODEL, and ADMIN_EVAL_LLM_API_KEY.'
+              ? 'No LLM is configured. Configure the backend LLM (compiler_type=llm + a LiteLLM key/model) — chat reuses it automatically — or set ADMIN_EVAL_LLM_PROVIDER / _MODEL / _API_KEY on the admin server for a chat-specific override.'
               : data.error === 'statewave_not_configured'
                 ? 'Statewave API not configured. Set STATEWAVE_API_URL.'
                 : (data.error ?? `HTTP ${res.status}`)
