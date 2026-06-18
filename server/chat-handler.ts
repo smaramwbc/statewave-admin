@@ -6,8 +6,17 @@
  *
  * For each selected subject, retrieves the top context items from the
  * Statewave /v1/context endpoint (same API the eval runner uses), assembles
- * them into a grounded system prompt, and calls the operator-configured LLM
- * (ADMIN_EVAL_LLM_*) for a response.
+ * them into a grounded system prompt, and generates a reply.
+ *
+ * Two ways the reply is generated, in precedence order:
+ *   1. If ADMIN_EVAL_LLM_* is configured, the admin calls that provider
+ *      directly (lets an operator point chat at a different / cheaper model).
+ *   2. Otherwise it DELEGATES to the backend's POST /v1/llm/complete, which
+ *      generates the reply using the backend's own STATEWAVE_LITELLM_* config
+ *      — the same LLM already configured for memory compilation. This means
+ *      "Chat with Memory" works out of the box once the backend LLM is set,
+ *      with zero admin-side LLM credentials, and works identically on Docker,
+ *      desktop, and serverless (Vercel) since there's no admin-side secret.
  *
  * The API key is never exposed to the browser — all secrets stay server-side.
  */
@@ -33,6 +42,18 @@ interface LLMUsage {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+}
+
+/** Unified result shape for both the direct-provider and backend-delegated
+ * generation paths, so the handler can treat them interchangeably. */
+interface LLMCallResult {
+  reply: string
+  error: string | null
+  usage: LLMUsage | null
+  duration_ms: number
+  /** Model actually used. Empty string when unknown (e.g. an error before
+   * the backend reported which model it picked). */
+  model: string
 }
 
 interface AdminChatStats {
@@ -161,10 +182,10 @@ function buildSystemPrompt(contextItems: ContextItem[], subjects: string[]): str
 async function callLLM(
   cfg: ReturnType<typeof getEvalConfig>,
   messages: Array<{ role: string; content: string }>,
-): Promise<{ reply: string; error: string | null; usage: LLMUsage | null; duration_ms: number }> {
+): Promise<LLMCallResult> {
   const { llm } = cfg
   if (!llm.provider || !llm.model || !llm.apiKey) {
-    return { reply: '', error: 'llm_not_configured', usage: null, duration_ms: 0 }
+    return { reply: '', error: 'llm_not_configured', usage: null, duration_ms: 0, model: '' }
   }
 
   const controller = new AbortController()
@@ -187,7 +208,7 @@ async function callLLM(
         body: JSON.stringify({ model: llm.model, max_tokens: 1024, system, messages: rest }),
         signal: controller.signal,
       })
-      if (!res.ok) return { reply: '', error: `HTTP ${res.status}`, usage: null, duration_ms: Date.now() - t0 }
+      if (!res.ok) return { reply: '', error: `HTTP ${res.status}`, usage: null, duration_ms: Date.now() - t0, model: llm.model }
       const data = (await res.json()) as {
         content?: Array<{ type?: string; text?: string }>
         usage?: { input_tokens?: number; output_tokens?: number }
@@ -195,7 +216,7 @@ async function callLLM(
       const reply = data.content?.find((b) => b.type === 'text')?.text ?? ''
       const inp = data.usage?.input_tokens ?? 0
       const out = data.usage?.output_tokens ?? 0
-      return { reply, error: null, usage: { prompt_tokens: inp, completion_tokens: out, total_tokens: inp + out }, duration_ms: Date.now() - t0 }
+      return { reply, error: null, usage: { prompt_tokens: inp, completion_tokens: out, total_tokens: inp + out }, duration_ms: Date.now() - t0, model: llm.model }
     }
 
     // OpenAI / openai-compatible
@@ -210,7 +231,7 @@ async function callLLM(
       body: JSON.stringify({ model: llm.model, messages }),
       signal: controller.signal,
     })
-    if (!res.ok) return { reply: '', error: `HTTP ${res.status}`, usage: null, duration_ms: Date.now() - t0 }
+    if (!res.ok) return { reply: '', error: `HTTP ${res.status}`, usage: null, duration_ms: Date.now() - t0, model: llm.model }
     const data = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
@@ -221,9 +242,72 @@ async function callLLM(
       completion_tokens: data.usage?.completion_tokens ?? 0,
       total_tokens: data.usage?.total_tokens ?? 0,
     }
-    return { reply, error: null, usage, duration_ms: Date.now() - t0 }
+    return { reply, error: null, usage, duration_ms: Date.now() - t0, model: llm.model }
   } catch (e) {
-    return { reply: '', error: e instanceof Error ? e.message : 'unknown', usage: null, duration_ms: Date.now() - t0 }
+    return { reply: '', error: e instanceof Error ? e.message : 'unknown', usage: null, duration_ms: Date.now() - t0, model: llm.model }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Delegate generation to the backend's POST /v1/llm/complete. The backend
+ * picks the model + provider from its own STATEWAVE_LITELLM_* config and
+ * returns { reply, usage?, model? }. Used when no ADMIN_EVAL_LLM_* override
+ * is set — so the admin never needs its own LLM credential, and the same
+ * works on Vercel where there's no durable admin-side secret store.
+ */
+async function callBackendLLM(
+  apiUrl: string,
+  apiKey: string | null,
+  messages: Array<{ role: string; content: string }>,
+): Promise<LLMCallResult> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30_000)
+  const t0 = Date.now()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  }
+  if (apiKey) headers['X-API-Key'] = apiKey
+  try {
+    // The backend caps messages at 50 and max_tokens at 4096; our turns stay
+    // well under both. It rejects a `model` field (provider choice is a
+    // server concern), so we send only messages + max_tokens.
+    const res = await fetch(`${apiUrl.replace(/\/+$/, '')}/v1/llm/complete`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ messages, max_tokens: 1024 }),
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      // Backend 503 = its own LLM isn't configured (no STATEWAVE_LITELLM_MODEL).
+      // Map it to the SAME `llm_not_configured` code the direct path uses, so
+      // the UI shows one unified "no LLM configured" message regardless of path.
+      const error = res.status === 503 ? 'llm_not_configured' : `HTTP ${res.status}`
+      return { reply: '', error, usage: null, duration_ms: Date.now() - t0, model: '' }
+    }
+    const data = (await res.json()) as {
+      reply?: string
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null
+      model?: string | null
+    }
+    const usage: LLMUsage | null = data.usage
+      ? {
+          prompt_tokens: data.usage.prompt_tokens ?? 0,
+          completion_tokens: data.usage.completion_tokens ?? 0,
+          total_tokens: data.usage.total_tokens ?? 0,
+        }
+      : null
+    return {
+      reply: data.reply ?? '',
+      error: null,
+      usage,
+      duration_ms: Date.now() - t0,
+      model: data.model ?? '',
+    }
+  } catch (e) {
+    return { reply: '', error: e instanceof Error ? e.message : 'unknown', usage: null, duration_ms: Date.now() - t0, model: '' }
   } finally {
     clearTimeout(timer)
   }
@@ -311,7 +395,14 @@ export async function handleAdminChat(
     ...messages,
   ]
 
-  const { reply, error, usage: llmUsage, duration_ms: llm_ms } = await callLLM(cfg, llmMessages)
+  // Precedence: an explicit ADMIN_EVAL_LLM_* override wins (operator can point
+  // chat at a different model + keep direct-provider token stats); otherwise
+  // delegate to the backend's configured LLM so chat works with zero admin-side
+  // credentials.
+  const adminLlmConfigured = Boolean(cfg.llm.provider && cfg.llm.model && cfg.llm.apiKey)
+  const { reply, error, usage: llmUsage, duration_ms: llm_ms, model } = adminLlmConfigured
+    ? await callLLM(cfg, llmMessages)
+    : await callBackendLLM(apiUrl, apiKey, llmMessages)
 
   if (error) {
     const status = error === 'llm_not_configured' ? 503 : 502
@@ -334,7 +425,7 @@ export async function handleAdminChat(
       total_ms: Date.now() - t0,
       context_tokens_est: contextItems.reduce((s, i) => s + i.token_count, 0),
       llm_usage: llmUsage,
-      model: cfg.llm.model ?? '',
+      model,
       subject_counts: subjectCounts,
     },
   }
