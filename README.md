@@ -11,7 +11,7 @@ Operator console for Statewave instances — system health, subject explorer, co
 
 > **Frontend role:** This is the **operator/admin console** — a privileged dashboard for monitoring and operating Statewave. For the marketing website and embedded interactive demo, see [statewave-web](https://github.com/smaramwbc/statewave-web).
 
-> ⚠️ **Privileged interface — secure-by-default.** statewave-admin ships with a built-in password gate enabled by default. In production, `ADMIN_PASSWORD` and `ADMIN_SESSION_SECRET` are required; without them, login and `/api/proxy` are blocked. The console is intended for **private deployment** — community users should run their own admin connected to their own backend. `admin.statewave.ai` is private and is not a public demo. For public demos, use [statewave-demo](https://github.com/smaramwbc/statewave-web).
+> ⚠️ **Privileged interface — secure-by-default.** statewave-admin ships with a built-in password gate enabled by default. In production, `ADMIN_PASSWORD` and `ADMIN_SESSION_SECRET` are required; without them, login and `/api/proxy` are blocked. The console is intended for **private deployment** — community users should run their own admin connected to their own backend. `admin.statewave.ai` is private and is not a public demo. For public demos, use [statewave-web](https://github.com/smaramwbc/statewave-web).
 
 ## Screenshots
 
@@ -52,7 +52,7 @@ docker compose up -d
 
 The compose ships `ADMIN_AUTH_DISABLED=true` for first-run convenience. For production override see [Production override](#production-override) below.
 
-New to Statewave? The [Getting Started guide](https://github.com/smaramwbc/statewave-docs/blob/main/getting-started.md) walks through the full server setup, then storing and retrieving your first memory.
+Don't have a Statewave server yet? Fastest path: `npx @statewavedev/statewave` (or `curl -fsSL https://www.statewave.ai/install | sh`, or on Windows `powershell -Command "irm https://www.statewave.ai/install.ps1 | iex"`), then point the admin at it. New to Statewave? The [Getting Started guide](https://github.com/smaramwbc/statewave-docs/blob/main/getting-started.md) walks through the full server setup, then storing and retrieving your first memory.
 
 ### B. Standalone Docker container
 
