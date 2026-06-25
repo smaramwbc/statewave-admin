@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@statewavedev/chat-core": "^0.1.2",
-    "@statewavedev/chat-react": "^0.1.0",
+    "@statewavedev/chat-react": "^0.1.1",
     "@tauri-apps/api": "^2.11.1",
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
