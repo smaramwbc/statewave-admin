@@ -18,6 +18,7 @@ import {
   fetchCompileJobs,
   purgeCompileJobs,
   resetStuckJobs,
+  deleteCompileJob,
   type CompileJobListItem,
 } from '../lib/api'
 import { RefreshControl } from '../components/RefreshControl'
@@ -98,9 +99,23 @@ function StatusBadge({ status, stuck }: { status: string; stuck?: boolean }) {
 
 // ─── Job Row ─────────────────────────────────────────────────────────────────
 
-function JobRow({ job }: { job: CompileJobListItem }) {
+function JobRow({ job, onDelete }: { job: CompileJobListItem; onDelete: (id: string) => void }) {
   const stuck = isStuck(job)
   const [errorExpanded, setErrorExpanded] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const canDelete = TERMINAL_STATUSES.has(job.status)
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await deleteCompileJob(job.job_id)
+      toast.success('Job deleted')
+      onDelete(job.job_id)
+    } catch (e) {
+      toast.error('Delete failed', { description: e instanceof Error ? e.message : 'Unknown error' })
+      setDeleting(false)
+    }
+  }
 
   return (
     <tr className="border-b border-theme-border/50 last:border-0 hover:bg-[var(--theme-surface-1)]/50">
@@ -171,6 +186,21 @@ function JobRow({ job }: { job: CompileJobListItem }) {
           <span className="text-xs text-theme-muted">—</span>
         )}
       </td>
+
+      {/* Delete */}
+      <td className="px-4 py-3 text-center">
+        {canDelete && (
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={deleting}
+            title="Delete this job"
+            className="text-theme-muted hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </td>
     </tr>
   )
 }
@@ -184,9 +214,25 @@ function JobRow({ job }: { job: CompileJobListItem }) {
  * job id, subject link, status badge, and stuck indicator can all
  * coexist legibly.
  */
-function JobCard({ job }: { job: CompileJobListItem }) {
+function JobCard({ job, onDelete }: { job: CompileJobListItem; onDelete: (id: string) => void }) {
   const stuck = isStuck(job)
   const [errorExpanded, setErrorExpanded] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const canDelete = TERMINAL_STATUSES.has(job.status)
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeleting(true)
+    try {
+      await deleteCompileJob(job.job_id)
+      toast.success('Job deleted')
+      onDelete(job.job_id)
+    } catch (err) {
+      toast.error('Delete failed', { description: err instanceof Error ? err.message : 'Unknown error' })
+      setDeleting(false)
+    }
+  }
+
   // The whole card navigates to the subject detail (the most natural
   // "drill in" destination from a job). The error toggle and the copy
   // button sit on top of the card with their own click handlers and
@@ -233,13 +279,22 @@ function JobCard({ job }: { job: CompileJobListItem }) {
           </div>
         </dl>
       </Link>
-      {/* Out-of-link controls. Copy on the job id (top-right) and the
-          error toggle (bottom). Both live outside the Link so the card
-          navigation isn't accidentally fired by their clicks. */}
+      {/* Out-of-link controls: copy + delete (top-right), error toggle (bottom). */}
       <div
-        className="absolute top-2.5 right-2.5 z-10"
+        className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5"
         onClick={(e) => e.stopPropagation()}
       >
+        {canDelete && (
+          <button
+            type="button"
+            onClick={(e) => void handleDelete(e)}
+            disabled={deleting}
+            title="Delete this job"
+            className="text-theme-muted hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
         <CopyableMono value={job.job_id} labelForA11y="job ID" display="" />
       </div>
       {job.error && (
@@ -377,6 +432,10 @@ export function JobsPage() {
     } finally {
       setCleanupRunning(false)
     }
+  }
+
+  const handleDeleteJob = (jobId: string) => {
+    setData((prev) => prev ? { jobs: prev.jobs.filter((j) => j.job_id !== jobId), total: prev.total - 1 } : prev)
   }
 
   const runReset = async () => {
@@ -523,7 +582,7 @@ export function JobsPage() {
       {data && data.jobs.length > 0 && (
         <ul className="md:hidden space-y-3" aria-label="Compile jobs">
           {data.jobs.map((job) => (
-            <JobCard key={job.job_id} job={job} />
+            <JobCard key={job.job_id} job={job} onDelete={handleDeleteJob} />
           ))}
           {totalPages > 1 && (
             <li className="pt-2">
@@ -552,11 +611,12 @@ export function JobsPage() {
                   <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Duration</th>
                   <th className="text-right text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Created</th>
                   <th className="text-left text-xs font-medium uppercase tracking-wide text-theme-muted px-4 py-2.5">Error</th>
+                  <th className="w-10 px-4 py-2.5" aria-label="Delete" />
                 </tr>
               </thead>
               <tbody>
                 {data.jobs.map((job) => (
-                  <JobRow key={job.job_id} job={job} />
+                  <JobRow key={job.job_id} job={job} onDelete={handleDeleteJob} />
                 ))}
               </tbody>
             </table>
