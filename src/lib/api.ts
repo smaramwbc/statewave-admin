@@ -482,6 +482,19 @@ export interface PurgeCompileJobsParams {
   tenant_id?: string
 }
 
+/** Reset compile jobs that have been stuck in `running` state longer than
+ *  `threshold_minutes` (default 30) back to `pending` so a worker retries them. */
+export async function resetStuckJobs(
+  thresholdMinutes = 30
+): Promise<{ reset: number }> {
+  const res = await fetch(
+    adminUrl(`/admin/jobs/reset-stuck?threshold_minutes=${thresholdMinutes}`),
+    { method: 'POST' }
+  )
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 /** Bulk-delete terminal compile jobs matching the filter. Server requires at
  *  least one filter and rejects non-terminal statuses. */
 export async function purgeCompileJobs(
