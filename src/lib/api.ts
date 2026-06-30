@@ -495,6 +495,13 @@ export async function resetStuckJobs(
   return res.json()
 }
 
+/** Delete a single terminal compile job by ID. Server rejects pending/running jobs. */
+export async function deleteCompileJob(jobId: string): Promise<{ deleted: number }> {
+  const res = await fetch(adminUrl(`/admin/jobs/${encodeURIComponent(jobId)}`), { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 /** Bulk-delete terminal compile jobs matching the filter. Server requires at
  *  least one filter and rejects non-terminal statuses. */
 export async function purgeCompileJobs(
