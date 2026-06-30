@@ -17,6 +17,7 @@ import {
 import {
   fetchCompileJobs,
   purgeCompileJobs,
+  resetStuckJobs,
   type CompileJobListItem,
 } from '../lib/api'
 import { RefreshControl } from '../components/RefreshControl'
@@ -272,6 +273,7 @@ export function JobsPage() {
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [cleanupRunning, setCleanupRunning] = useState(false)
   const [cleanupError, setCleanupError] = useState<string | null>(null)
+  const [resetRunning, setResetRunning] = useState(false)
 
   // Extract params from URL
   const statusFilter = searchParams.get('status') || ''
@@ -377,6 +379,24 @@ export function JobsPage() {
     }
   }
 
+  const runReset = async () => {
+    setResetRunning(true)
+    try {
+      const { reset } = await resetStuckJobs()
+      toast.success(
+        reset === 0
+          ? 'No stuck jobs found'
+          : `Reset ${reset} stuck job${reset === 1 ? '' : 's'} to pending`,
+        { description: 'The jobs will be retried by the next available worker.' }
+      )
+      await loadData()
+    } catch (e) {
+      toast.error('Reset failed', { description: e instanceof Error ? e.message : 'Unknown error' })
+    } finally {
+      setResetRunning(false)
+    }
+  }
+
   return (
     <PullToRefresh onRefresh={loadData}>
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -442,11 +462,19 @@ export function JobsPage() {
         )}
 
         {stuckCount > 0 && (
-          <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 inline-flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" aria-hidden="true" />
             <span className="text-xs text-amber-400 font-medium">
               {stuckCount} stuck job{stuckCount > 1 ? 's' : ''}
             </span>
+            <button
+              type="button"
+              onClick={() => void runReset()}
+              disabled={resetRunning}
+              className="text-xs font-medium text-amber-300 hover:text-amber-100 underline underline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {resetRunning ? 'Resetting…' : 'Reset to pending'}
+            </button>
           </div>
         )}
 
