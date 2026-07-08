@@ -29,7 +29,7 @@ toml = "1.1"
 aes-gcm = "0.11"
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 sha2 = "0.11"
-rand = "0.9"
+rand = "0.10"
 base64 = "0.22"
 
 # config + secrets
