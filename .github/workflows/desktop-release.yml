@@ -117,7 +117,7 @@ jobs:
       #    ship unsigned bundles. First-launch Gatekeeper / SmartScreen
       #    workarounds are documented in the top-level README.
       - name: Build GUI bundles (Tauri)
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
