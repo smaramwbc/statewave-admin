@@ -22,7 +22,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use chrono::Utc;
 use pbkdf2::pbkdf2_hmac;
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
@@ -69,7 +69,7 @@ pub fn encrypt(payload: &MemoryExportPayload, passphrase: &str) -> Result<Vec<u8
 
     let mut salt = [0u8; SALT_BYTES];
     let mut nonce_bytes = [0u8; NONCE_BYTES];
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rng.fill_bytes(&mut salt);
     rng.fill_bytes(&mut nonce_bytes);
 
