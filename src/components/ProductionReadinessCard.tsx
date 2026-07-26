@@ -32,7 +32,7 @@
  * parallel via Promise.allSettled and we render what landed.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { AlertOctagon, AlertTriangle, Info, ShieldCheck, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { Button, Badge, CopyableMono, Skeleton } from './ui'

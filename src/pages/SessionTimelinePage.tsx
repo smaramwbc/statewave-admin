@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, Link, useSearchParams } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router'
 import { Badge, LoadingOverlay, EmptyState, InlineError, CopyableMono } from '../components/ui'
 import {
   fetchSessionTimeline,

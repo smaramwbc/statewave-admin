@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { SuggestedLabelsPage } from '../src/pages/SuggestedLabelsPage'
 import { ThemeProvider } from '../src/lib/theme'
 

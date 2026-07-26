@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router'
 import { LayoutDashboard, Database, Cog, Receipt, Shield, Settings, Tag, Webhook, Stethoscope, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTheme } from '../../lib/theme'

@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { ThemeProvider } from '../src/lib/theme'
 import { AuthProvider } from '../src/lib/auth'
 import { WizardsProvider } from '../src/lib/wizards'

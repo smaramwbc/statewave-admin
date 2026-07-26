@@ -32,7 +32,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { EnableAuthWizard } from '../components/EnableAuthWizard'
 import { EnableAdminAuthWizard } from '../components/EnableAdminAuthWizard'
 
