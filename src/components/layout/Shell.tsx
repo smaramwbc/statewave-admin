@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router'
 import { AlertTriangle, Menu, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { ThemeSwitcher } from '../ThemeSwitcher'

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 export function StatCard({ label, value, sub, to }: { label: string; value: string | number; sub?: string; to?: string }) {
   const content = (

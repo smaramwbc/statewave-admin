@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router'
 import { Toaster } from 'sonner'
 import { ThemeProvider } from './lib/theme'
 import { AuthProvider } from './lib/auth'

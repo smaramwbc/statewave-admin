@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router'
 import { useEffect } from 'react'
 import { WizardsProvider, useWizards } from '../src/lib/wizards'
 

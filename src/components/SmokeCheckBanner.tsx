@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { AlertCircle, Loader2, Stethoscope } from 'lucide-react'
 import { fetchSmokeStatus, type SmokeStatus } from '../lib/api'
 

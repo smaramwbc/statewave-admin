@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router'
 import { AlertTriangle, Trash2, X, Search, Zap, GitBranch, Clock, Shield, ScatterChart, Receipt } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTheme } from '../lib/theme'
