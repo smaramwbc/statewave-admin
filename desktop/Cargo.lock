@@ -3875,7 +3875,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "statewave-admin-cli"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3895,7 +3895,7 @@ dependencies = [
 
 [[package]]
 name = "statewave-admin-core"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3920,7 +3920,7 @@ dependencies = [
 
 [[package]]
 name = "statewave-admin-gui"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "env_logger",
