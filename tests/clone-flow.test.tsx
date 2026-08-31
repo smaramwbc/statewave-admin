@@ -8,7 +8,7 @@ import {
   fireEvent,
   within,
 } from '@testing-library/react'
-import { Toaster } from 'sonner'
+import { Toaster, toast } from 'sonner'
 import { SubjectRowActions } from '../src/components/SubjectRowActions'
 
 /**
@@ -38,6 +38,15 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // sonner keeps its toasts in a module-level store that outlives the React
+  // tree, so `cleanup()` unmounts the Toaster but leaves the toast itself
+  // queued. The next test in the file renders a fresh Toaster, the survivor is
+  // re-rendered into it, and a `getByText` for the toast title finds two.
+  //
+  // sonner 2.0.7 happened not to re-render the survivor, so the leak was
+  // invisible; 2.0.8 does, which is what turned three of these files red on the
+  // dependency bump. The store is the thing that needs clearing.
+  toast.dismiss()
   cleanup()
   vi.restoreAllMocks()
 })
