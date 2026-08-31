@@ -117,7 +117,7 @@ fn render_object_array(rows: &[Value]) -> String {
         return out;
     }
     let mut t = Table::new();
-    t.load_preset(UTF8_FULL_CONDENSED)
+    t.load_style(UTF8_FULL_CONDENSED)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(keys.iter().map(|k| Cell::new(k)));
     for row in rows {
@@ -135,7 +135,7 @@ fn render_object(value: &Value) -> String {
         return scalar(value);
     };
     let mut t = Table::new();
-    t.load_preset(UTF8_FULL_CONDENSED)
+    t.load_style(UTF8_FULL_CONDENSED)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![Cell::new("field"), Cell::new("value")]);
     for (k, v) in obj {
