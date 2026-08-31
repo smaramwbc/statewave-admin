@@ -11,7 +11,7 @@ import {
 } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { Toaster } from 'sonner'
+import { Toaster, toast } from 'sonner'
 import { JobsPage } from '../src/pages/JobsPage'
 import { ThemeProvider } from '../src/lib/theme'
 
@@ -107,6 +107,16 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // sonner's toasts live in a module-level store that outlives the React tree,
+  // so `cleanup()` unmounts the Toaster but the toast entry survives.
+  // `toast.dismiss()` marks every entry dismissed, which is what keeps it out of
+  // the `getActiveToasts()` list 2.0.8 replays into each new subscriber — so the
+  // next test's fresh Toaster no longer re-renders the survivor, and `getByText`
+  // on a toast title stops matching two nodes.
+  //
+  // 2.0.7 has no such replay, so the leak was invisible there and this call is
+  // inert on it; the bump to 2.0.8 is what turned these files red.
+  toast.dismiss()
   cleanup()
 })
 
