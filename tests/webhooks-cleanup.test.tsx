@@ -97,14 +97,15 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // sonner keeps its toasts in a module-level store that outlives the React
-  // tree, so `cleanup()` unmounts the Toaster but leaves the toast itself
-  // queued. The next test in the file renders a fresh Toaster, the survivor is
-  // re-rendered into it, and a `getByText` for the toast title finds two.
+  // sonner's toasts live in a module-level store that outlives the React tree,
+  // so `cleanup()` unmounts the Toaster but the toast entry survives.
+  // `toast.dismiss()` marks every entry dismissed, which is what keeps it out of
+  // the `getActiveToasts()` list 2.0.8 replays into each new subscriber — so the
+  // next test's fresh Toaster no longer re-renders the survivor, and `getByText`
+  // on a toast title stops matching two nodes.
   //
-  // sonner 2.0.7 happened not to re-render the survivor, so the leak was
-  // invisible; 2.0.8 does, which is what turned three of these files red on the
-  // dependency bump. The store is the thing that needs clearing.
+  // 2.0.7 has no such replay, so the leak was invisible there and this call is
+  // inert on it; the bump to 2.0.8 is what turned these files red.
   toast.dismiss()
   cleanup()
 })
