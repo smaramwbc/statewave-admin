@@ -160,6 +160,96 @@ jobs:
           "$CLI" --version
           "$CLI" --help > /dev/null && echo "✓ CLI --help runs"
 
+      # ─────────────────────────────────────────────────────────────
+      # Normalize permissions inside the AppImage.
+      #
+      # linuxdeploy emits AppRun.wrapped as 0770. Inside a mounted
+      # AppImage every file keeps the ownership it was packaged with
+      # (root), so a mode with no "other" bits means the invoking user
+      # cannot execute it: the app dies on launch with
+      #   AppRun: line 12: AppRun.wrapped: Permission denied
+      #
+      # This is invisible to --appimage-extract-and-run, which unpacks
+      # as the current user so the owner bits still apply. That is how a
+      # green smoke test shipped a 1.2.1 AppImage that could not start
+      # for anyone, and why the smoke test below no longer relies on it.
+      # ─────────────────────────────────────────────────────────────
+      - name: Normalize AppImage permissions (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="$GITHUB_WORKSPACE/desktop/target/${{ matrix.rust_target }}/release/bundle/appimage"
+          APPIMAGE=$(ls "$BUNDLE"/*.AppImage | head -1)
+          [ -n "$APPIMAGE" ] || { echo "::error::no AppImage produced" ; exit 1 ; }
+          chmod +x "$APPIMAGE"
+
+          work=$(mktemp -d)
+          ( cd "$work" && "$APPIMAGE" --appimage-extract >/dev/null )
+
+          # Readable by all; executable by all wherever the owner can execute.
+          chmod -R go+rX "$work/squashfs-root"
+          for f in AppRun AppRun.wrapped; do
+            [ -e "$work/squashfs-root/$f" ] && chmod 0755 "$work/squashfs-root/$f"
+          done
+
+          curl -fsSL -o "$work/appimagetool" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$work/appimagetool"
+          ARCH=x86_64 "$work/appimagetool" --appimage-extract-and-run \
+            "$work/squashfs-root" "$APPIMAGE.repacked" >/dev/null
+          mv "$APPIMAGE.repacked" "$APPIMAGE"
+          chmod +x "$APPIMAGE"
+          rm -rf "$work"
+          echo "repacked $APPIMAGE with normalized permissions"
+
+      # Assert the bug cannot come back. Reads the modes straight out of
+      # the packaged squashfs, so it does not depend on how the image is
+      # launched.
+      - name: Verify AppImage permissions (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends squashfs-tools
+          BUNDLE="$GITHUB_WORKSPACE/desktop/target/${{ matrix.rust_target }}/release/bundle/appimage"
+          APPIMAGE=$(ls "$BUNDLE"/*.AppImage | head -1)
+          offset=$("$APPIMAGE" --appimage-offset)
+          work=$(mktemp -d)
+          dd if="$APPIMAGE" of="$work/fs.squashfs" bs=1M skip="$offset" iflag=skip_bytes status=none
+
+          # Any regular file the owner can execute must be executable by
+          # others too, and everything must be world readable.
+          # Flag any regular file the invoking user cannot read, or that
+          # the owner can execute but others cannot. Verified against the
+          # broken 1.2.1 image: flags AppRun.wrapped (0770) and nothing
+          # else out of 271 entries.
+          bad=$(unsquashfs -ll "$work/fs.squashfs" | awk '
+            $1 ~ /^-/ {
+              owner_x = substr($1, 4, 1)
+              other_r = substr($1, 8, 1)
+              other_x = substr($1, 10, 1)
+              if ((owner_x == "x" && other_x != "x") || other_r != "r") print
+            }')
+          if [ -n "$bad" ]; then
+            echo "::error::AppImage contains files the invoking user cannot read or execute"
+            echo "$bad"
+            exit 1
+          fi
+          echo "✓ AppImage permissions are world readable, executables world executable"
+          rm -rf "$work"
+
+      # tauri-action uploaded the pre-repack AppImage, so replace that
+      # asset on the draft with the permission-corrected build.
+      - name: Replace AppImage on the draft release (Linux)
+        if: matrix.platform == 'ubuntu-latest' && startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: desktop/target/${{ matrix.rust_target }}/release/bundle/appimage/*.AppImage
+          fail_on_unmatched_files: true
+
       - name: Smoke-test built bundle (Linux)
         if: matrix.platform == 'ubuntu-latest'
         shell: bash
@@ -168,7 +258,11 @@ jobs:
           APPIMAGE=$(ls "$GITHUB_WORKSPACE"/desktop/target/${{ matrix.rust_target }}/release/bundle/appimage/*.AppImage | head -1)
           [ -n "$APPIMAGE" ] || { echo "::error::no AppImage produced" ; exit 1 ; }
           chmod +x "$APPIMAGE"
-          xvfb-run -a "$APPIMAGE" --appimage-extract-and-run > /tmp/swa-smoke.log 2>&1 &
+          # Run the AppImage the way a user does (FUSE mount), not with
+          # --appimage-extract-and-run, which unpacks as the current user
+          # and therefore cannot see a permissions bug like the one above.
+          sudo apt-get install -y --no-install-recommends libfuse2
+          xvfb-run -a "$APPIMAGE" > /tmp/swa-smoke.log 2>&1 &
           PID=$!
           sleep 8
           if kill -0 $PID 2>/dev/null; then
