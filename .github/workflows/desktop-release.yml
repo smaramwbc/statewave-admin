@@ -233,13 +233,19 @@ jobs:
           # appimagetool names the .zsync after the output file and records
           # that name inside it, so build straight to the final basename
           # rather than repacking to a temporary name and renaming after.
-          out="$work/$(basename "$APPIMAGE")"
-          ARCH=x86_64 "$work/appimagetool" --appimage-extract-and-run \
-            -u "gh-releases-zsync|smaramwbc|statewave-admin|latest|Statewave.Admin_*_amd64.AppImage.zsync" \
-            "$work/squashfs-root" "$out" >/dev/null
-          mv "$out" "$APPIMAGE"
-          mv "$out.zsync" "$BUNDLE/" 2>/dev/null \
-            || { echo "::error::appimagetool produced no .zsync" ; exit 1 ; }
+          # Run from inside the work directory: appimagetool hands the zsync
+          # step a relative name, so the .zsync lands in the working
+          # directory rather than beside the output path. Building here keeps
+          # both artefacts together whichever way it resolves that.
+          base=$(basename "$APPIMAGE")
+          ( cd "$work" && ARCH=x86_64 ./appimagetool --appimage-extract-and-run \
+              -u "gh-releases-zsync|smaramwbc|statewave-admin|latest|Statewave.Admin_*_amd64.AppImage.zsync" \
+              squashfs-root "$base" >/dev/null )
+          mv "$work/$base" "$APPIMAGE"
+
+          zsync=$(find "$work" -maxdepth 2 -name "*.zsync" | head -1)
+          [ -n "$zsync" ] || { echo "::error::appimagetool produced no .zsync" ; exit 1 ; }
+          mv "$zsync" "$BUNDLE/$base.zsync"
           chmod +x "$APPIMAGE"
           rm -rf "$work"
           echo "repacked $APPIMAGE with normalized permissions and update information"
