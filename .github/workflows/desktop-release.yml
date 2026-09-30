@@ -223,12 +223,26 @@ jobs:
           curl -fsSL -o "$work/appimagetool" \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x "$work/appimagetool"
+          # Embed update information so AppImageUpdate and friends can
+          # update an installed copy. Without it the catalog reports
+          # "contains no update information" and users have to re-download
+          # by hand. Format is transport|user|repo|release|pattern, and
+          # "latest" resolves through the GitHub releases API, so the
+          # pattern has to match the asset name with the version wildcarded.
+          #
+          # appimagetool names the .zsync after the output file and records
+          # that name inside it, so build straight to the final basename
+          # rather than repacking to a temporary name and renaming after.
+          out="$work/$(basename "$APPIMAGE")"
           ARCH=x86_64 "$work/appimagetool" --appimage-extract-and-run \
-            "$work/squashfs-root" "$APPIMAGE.repacked" >/dev/null
-          mv "$APPIMAGE.repacked" "$APPIMAGE"
+            -u "gh-releases-zsync|smaramwbc|statewave-admin|latest|Statewave.Admin_*_amd64.AppImage.zsync" \
+            "$work/squashfs-root" "$out" >/dev/null
+          mv "$out" "$APPIMAGE"
+          mv "$out.zsync" "$BUNDLE/" 2>/dev/null \
+            || { echo "::error::appimagetool produced no .zsync" ; exit 1 ; }
           chmod +x "$APPIMAGE"
           rm -rf "$work"
-          echo "repacked $APPIMAGE with normalized permissions"
+          echo "repacked $APPIMAGE with normalized permissions and update information"
 
       # Assert the bug cannot come back. Reads the modes straight out of
       # the packaged squashfs, so it does not depend on how the image is
@@ -264,6 +278,20 @@ jobs:
             exit 1
           fi
           echo "✓ AppImage permissions are world readable, executables world executable"
+
+          # The catalog checks this too, and an AppImage with no update
+          # information looks fine until someone tries to update it.
+          ui=$("$APPIMAGE" --appimage-updateinformation 2>/dev/null || true)
+          case "$ui" in
+            gh-releases-zsync\|smaramwbc\|statewave-admin\|*)
+              echo "✓ update information embedded: $ui" ;;
+            *)
+              echo "::error::missing or unexpected update information: '$ui'"
+              exit 1 ;;
+          esac
+          [ -f "$BUNDLE/$(basename "$APPIMAGE").zsync" ] \
+            || { echo "::error::no .zsync beside the AppImage" ; exit 1 ; }
+          echo "✓ .zsync present for publication"
           rm -rf "$work"
 
       # tauri-action uploaded the pre-repack AppImage, so replace that
@@ -274,7 +302,11 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           draft: true
-          files: desktop/target/${{ matrix.rust_target }}/release/bundle/appimage/*.AppImage
+          # The .zsync must sit beside the AppImage on the release, that is
+          # where the embedded update information points.
+          files: |
+            desktop/target/${{ matrix.rust_target }}/release/bundle/appimage/*.AppImage
+            desktop/target/${{ matrix.rust_target }}/release/bundle/appimage/*.AppImage.zsync
           fail_on_unmatched_files: true
 
       - name: Smoke-test built bundle (Linux)
