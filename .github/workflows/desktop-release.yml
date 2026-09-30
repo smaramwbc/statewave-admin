@@ -91,6 +91,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop -> target
+          # rust-cache's automatic key only identifies the platform coarsely
+          # ("Linux-x64"), not the runner image, so a target directory built
+          # on one Ubuntu restores onto another. Moving the Linux leg to
+          # 22.04 restored a 24.04 target dir and cargo then failed with
+          # "can't find crate for `tauri`". Keying on the image keeps the
+          # two apart.
+          key: ${{ matrix.platform }}
 
       - name: Install npm deps
         run: npm ci
