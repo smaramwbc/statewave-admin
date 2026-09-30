@@ -30,12 +30,22 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
+            os_family: macos
             rust_target: aarch64-apple-darwin
             cli_suffix: macos-arm64
-          - platform: ubuntu-latest
+          # Pinned to the oldest still-supported Ubuntu LTS on purpose. A
+          # binary links against the glibc it was built on and cannot run on
+          # anything older, so building on ubuntu-latest (24.04, glibc 2.39)
+          # produced an AppImage that refused to start anywhere older with
+          # "GLIBC_2.39 not found". 22.04 gives glibc 2.35 and is supported
+          # until April 2027. Steps gate on os_family rather than this value
+          # so the image can be moved again without silently skipping them.
+          - platform: ubuntu-22.04
+            os_family: linux
             rust_target: x86_64-unknown-linux-gnu
             cli_suffix: linux-x64
           - platform: windows-latest
+            os_family: windows
             rust_target: x86_64-pc-windows-msvc
             cli_suffix: windows-x64
 
@@ -48,7 +58,7 @@ jobs:
       # ── Linux WebKit / GTK deps for the Tauri WebView. Mac and Windows
       #    have everything they need preinstalled on GitHub runners.
       - name: Install Linux build prerequisites
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.os_family == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -150,7 +160,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────
 
       - name: Smoke-test built bundle (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: matrix.os_family == 'macos'
         shell: bash
         run: |
           APP="$GITHUB_WORKSPACE/desktop/target/${{ matrix.rust_target }}/release/bundle/macos/Statewave Admin.app"
@@ -185,7 +195,7 @@ jobs:
       # for anyone, and why the smoke test below no longer relies on it.
       # ─────────────────────────────────────────────────────────────
       - name: Normalize AppImage permissions (Linux)
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.os_family == 'linux'
         shell: bash
         run: |
           set -euo pipefail
@@ -217,7 +227,7 @@ jobs:
       # the packaged squashfs, so it does not depend on how the image is
       # launched.
       - name: Verify AppImage permissions (Linux)
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.os_family == 'linux'
         shell: bash
         run: |
           set -euo pipefail
@@ -252,7 +262,7 @@ jobs:
       # tauri-action uploaded the pre-repack AppImage, so replace that
       # asset on the draft with the permission-corrected build.
       - name: Replace AppImage on the draft release (Linux)
-        if: matrix.platform == 'ubuntu-latest' && startsWith(github.ref, 'refs/tags/desktop-v')
+        if: matrix.os_family == 'linux' && startsWith(github.ref, 'refs/tags/desktop-v')
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
@@ -261,7 +271,7 @@ jobs:
           fail_on_unmatched_files: true
 
       - name: Smoke-test built bundle (Linux)
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.os_family == 'linux'
         shell: bash
         run: |
           sudo apt-get install -y --no-install-recommends xvfb
@@ -288,7 +298,7 @@ jobs:
           "$CLI" --help > /dev/null && echo "✓ CLI --help runs"
 
       - name: Smoke-test built bundle (Windows)
-        if: matrix.platform == 'windows-latest'
+        if: matrix.os_family == 'windows'
         shell: pwsh
         run: |
           $msi = Get-ChildItem -Recurse -Path "$env:GITHUB_WORKSPACE\desktop\target\${{ matrix.rust_target }}\release\bundle\msi" -Filter *.msi | Select-Object -First 1
