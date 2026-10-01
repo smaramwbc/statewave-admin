@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - "desktop-v*"
+  # Build-only on pull requests that touch the desktop side. Everything that
+  # publishes is gated on a desktop-v tag ref, so this compiles the bundles,
+  # normalizes and verifies the AppImage and smoke-tests it without creating
+  # a release. Three bugs reached main through this gap: the AppImage
+  # AppRun.wrapped permissions, the glibc level, and a Tauri npm/crate
+  # mismatch, all because nothing built the GUI until someone cut a tag.
+  pull_request:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-release.yml"
   workflow_dispatch:
     inputs:
       version:
