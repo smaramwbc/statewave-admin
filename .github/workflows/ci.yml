@@ -18,6 +18,14 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # Tauri refuses to build when the npm packages and the Rust crate
+      # disagree, and only the release workflow builds the GUI, so a bump to
+      # one side alone otherwise passes here and lands a main branch whose
+      # desktop release cannot build. Seconds, so it runs on every PR.
+      - run: node scripts/check-tauri-versions.mjs
+        name: Tauri npm and Rust versions agree
+
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test
