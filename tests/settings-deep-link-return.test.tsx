@@ -113,10 +113,28 @@ describe('Settings deep-link → close → return to origin', () => {
     //   navigate('/settings?edit=strict_schema', { state: { from: '/' } })
     renderApp([{ pathname: '/settings', search: '?edit=strict_schema', state: { from: '/' } }])
 
-    // Wait for the editor modal to mount.
-    await waitFor(() => {
-      expect(screen.getByText(/edit strict schema check/i)).toBeInTheDocument()
-    })
+    // Wait for the editor modal to be OPEN, not merely mounted.
+    //
+    // This gate has to be an accessibility-tree query rather than
+    // getByText. Modal renders a native <dialog> and opens it with
+    // showModal() from a useEffect, so in the window between React
+    // committing the markup and that effect running, the dialog has no
+    // `open` attribute and is therefore display:none. getByText ignores
+    // visibility and happily matches the title inside that window,
+    // while every role query against the dialog's contents still
+    // returns nothing - which is exactly how this test failed
+    // intermittently in CI ("Unable to find an accessible element with
+    // the role button and name /^cancel$/i", with the dialog absent
+    // from the printed role list). The editor here opens off an effect
+    // chain (fetch resolves -> loading flips -> deep-link effect runs),
+    // so waitFor polls on its own schedule and can land in that gap;
+    // tests that open a modal by clicking inside act() never see it.
+    //
+    // findByRole('dialog') resolves only once the dialog is really
+    // open, which is the same convention the other modal tests in this
+    // suite already use.
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent(/edit strict schema check/i)
 
     // Sanity: we ARE on /settings right now (?edit= will be stripped
     // by SettingsPage's useEffect, possibly along with state in older
@@ -144,9 +162,10 @@ describe('Settings deep-link → close → return to origin', () => {
     // NULL state.
     renderApp([{ pathname: '/settings', search: '?edit=strict_schema' /* no state */ }])
 
-    await waitFor(() => {
-      expect(screen.getByText(/edit strict schema check/i)).toBeInTheDocument()
-    })
+    // Same open-dialog gate as above - see the comment there for why
+    // getByText on the title is not a safe wait for this modal.
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent(/edit strict schema check/i)
 
     const cancelBtn = screen.getByRole('button', { name: /^cancel$/i })
     await act(async () => { cancelBtn.click() })
